@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Light-Lag Demo</title>
+<style>
+  body { background: #111; color: #eee; font-family: sans-serif; text-align: center; margin: 10px; }
+  #controls { margin-bottom: 5px; }
+  label { margin: 0 10px; display: inline-block; }
+  .control-row { margin: 5px 0; }
+</style>
+</head>
+<body>
+<h2>Galactic Light-Lag Demo</h2>
+<div id="controls">
+  <div class="control-row">
+    <label>Initial Distance: <input type="range" id="distanceSlider" min="0" max="10" step="0.1" value="5"></label>
+    <span id="distanceLabel"></span>
+  </div>
+  <div class="control-row">
+    <label>Vertical Amplitude: <input type="range" id="verticalSlider" min="0" max="150" step="5" value="50"></label>
+    <span id="verticalLabel"></span>
+    <label>Ship Speed: <input type="range" id="speedSlider" min="0" max="5" step="0.1" value="1"></label>
+    <span id="speedLabel"></span>
+  </div>
+  <div class="control-row">
+    <label><input type="checkbox" id="probeToggle"> FTL Probe Active</label>
+    <label><input type="checkbox" id="probeMoveToggle"> Probe Moves</label>
+    <label>Probe Speed: <input type="range" id="probeSpeedSlider" min="0" max="2" step="0.1" value="0.5"></label>
+    <span id="probeSpeedLabel"></span>
+  </div>
+  <div class="control-row">
+    <label><input type="checkbox" id="hideGhostToggle"> Hide ghost when in probe range</label>
+  </div>
+</div>
+<canvas id="canvas" width="800" height="400"></canvas>
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const slider = document.getElementById('distanceSlider');
+  const distLabel = document.getElementById('distanceLabel');
+  const probeToggle = document.getElementById('probeToggle');
+  const verticalSlider = document.getElementById('verticalSlider');
+  const verticalLabel = document.getElementById('verticalLabel');
+  const speedSlider = document.getElementById('speedSlider');
+  const speedLabel = document.getElementById('speedLabel');
+  const probeMoveToggle = document.getElementById('probeMoveToggle');
+  const probeSpeedSlider = document.getElementById('probeSpeedSlider');
+  const probeSpeedLabel = document.getElementById('probeSpeedLabel');
+  const hideGhostToggle = document.getElementById('hideGhostToggle');
+  
+  const c_px_per_sec = 60; // pixels per light-second
+  const player = { x: 100, y: canvas.height/2, vx: 0, vy: 0 };
+  const playerAccel = 120; // pixels/sec^2 (0.5x light speed per second)
+  const playerMaxSpeed = c_px_per_sec; // pixels/sec (speed of light!)
+  const playerFriction = 0.95; // velocity decay
+  const keysPressed = {};
+  let probeActive = false;
+  let probePosition = null; // {x, y} when deployed
+  let probePhase = 0; // for probe movement
+  let remoteShipBaseX = 0; // Set based on initial distance
+  
+  // Load saved values from localStorage
+  function loadSettings() {
+    const saved = localStorage.getItem('ftlDemoSettings');
+    if (saved) {
+      const settings = JSON.parse(saved);
+      slider.value = settings.distance ?? 5;
+      verticalSlider.value = settings.vertical ?? 50;
+      speedSlider.value = settings.speed ?? 1;
+      probeSpeedSlider.value = settings.probeSpeed ?? 0.5;
+      probeToggle.checked = settings.probeActive ?? false;
+      probeMoveToggle.checked = settings.probeMove ?? false;
+      hideGhostToggle.checked = settings.hideGhost ?? false;
+      probeActive = probeToggle.checked;
+      
+      // If probe was active, restore its position
+      if (probeActive && settings.probePosition) {
+        probePosition = settings.probePosition;
+        probePhase = settings.probePhase ?? 0;
+      }
+    }
+  }
+  
+  // Save settings to localStorage
+  function saveSettings() {
+    const settings = {
+      distance: parseFloat(slider.value),
+      vertical: parseFloat(verticalSlider.value),
+      speed: parseFloat(speedSlider.value),
+      probeSpeed: parseFloat(probeSpeedSlider.value),
+      probeActive: probeToggle.checked,
+      probeMove: probeMoveToggle.checked,
+      hideGhost: hideGhostToggle.checked,
+      probePosition: probePosition,
+      probePhase: probePhase
+    };
+    localStorage.setItem('ftlDemoSettings', JSON.stringify(settings));
+  }
+  function updateLabels() {
+    const dist = parseFloat(slider.value);
+    distLabel.textContent = dist.toFixed(1) + " light-sec";
+    verticalLabel.textContent = verticalSlider.value + " px";
+    speedLabel.textContent = speedSlider.value + "x";
+    probeSpeedLabel.textContent = probeSpeedSlider.value + "x";
+    // Update remote ship base position when distance changes
+    remoteShipBaseX = player.x + dist * c_px_per_sec;
+    saveSettings(); // Save whenever labels update
+  }
+  
+  // Load settings first, then update labels
+  loadSettings();
+  updateLabels();
+  
+  // Initialize remote ship position
+  remoteShipBaseX = player.x + parseFloat(slider.value) * c_px_per_sec;
+  probeToggle.addEventListener('change', () => {
+    probeActive = probeToggle.checked;
+    if (probeActive && !probePosition) {
+      // Deploy probe at current remote ship's actual position
+      const horizontal_distance_ls = parseFloat(slider.value);
+      const distance_px = horizontal_distance_ls * c_px_per_sec;
+      const verticalAmp = parseFloat(verticalSlider.value);
+      const shipSpeed = parseFloat(speedSlider.value);
+      // Deploy probe at remote ship's Y position but starting X between player and right edge
+      const rightBoundary = canvas.width - 50;
+      probePosition = {
+        x: player.x + (rightBoundary - player.x) * 0.5, // Start at midpoint
+        y: canvas.height/2 + verticalAmp * Math.sin(simTime * shipSpeed * (2 * Math.PI / 4))
+      };
+      probePhase = 0; // Reset probe movement phase
+    } else if (!probeActive) {
+      // Probe recalled
+      probePosition = null;
+    }
+    saveSettings();
+  });
+  
+  // Add save listeners for checkboxes
+  probeMoveToggle.addEventListener('change', saveSettings);
+  hideGhostToggle.addEventListener('change', saveSettings);
+  
+  // Keyboard controls
+  document.addEventListener('keydown', (e) => {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      e.preventDefault();
+      keysPressed[e.key] = true;
+    }
+  });
+  
+  document.addEventListener('keyup', (e) => {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      e.preventDefault();
+      keysPressed[e.key] = false;
+    }
+  });
+  slider.addEventListener('input', updateLabels);
+  verticalSlider.addEventListener('input', updateLabels);
+  speedSlider.addEventListener('input', updateLabels);
+  probeSpeedSlider.addEventListener('input', updateLabels);
+  let lastTimestamp = null;
+  let simTime = 0;
+  function drawFrame(timestamp) {
+    if (!lastTimestamp) lastTimestamp = timestamp;
+    // Update simulation time
+    let deltaSeconds = (timestamp - lastTimestamp) / 1000;
+    if (deltaSeconds > 0.1) {
+      deltaSeconds = 0.1;
+    }
+    simTime += deltaSeconds;
+    lastTimestamp = timestamp;
+    
+    // Apply friction first (only if no keys pressed)
+    const anyKeyPressed = keysPressed['ArrowLeft'] || keysPressed['ArrowRight'] || 
+                         keysPressed['ArrowUp'] || keysPressed['ArrowDown'];
+    if (!anyKeyPressed) {
+      player.vx *= playerFriction;
+      player.vy *= playerFriction;
+    }
+    
+    // Update player movement based on keys
+    if (keysPressed['ArrowLeft']) player.vx -= playerAccel * deltaSeconds;
+    if (keysPressed['ArrowRight']) player.vx += playerAccel * deltaSeconds;
+    if (keysPressed['ArrowUp']) player.vy -= playerAccel * deltaSeconds;
+    if (keysPressed['ArrowDown']) player.vy += playerAccel * deltaSeconds;
+    
+    // Clamp to max speed
+    const speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+    if (speed > playerMaxSpeed) {
+      player.vx = (player.vx / speed) * playerMaxSpeed;
+      player.vy = (player.vy / speed) * playerMaxSpeed;
+    }
+    
+    // Update position
+    player.x += player.vx * deltaSeconds;
+    player.y += player.vy * deltaSeconds;
+    
+    // Keep player on screen
+    player.x = Math.max(20, Math.min(canvas.width - 20, player.x));
+    player.y = Math.max(20, Math.min(canvas.height - 20, player.y));
+    // Compute lagged perception
+    const horizontal_distance_ls = parseFloat(slider.value);
+    const distance_px = horizontal_distance_ls * c_px_per_sec;
+    // Get animation parameters
+    const verticalAmp = parseFloat(verticalSlider.value);
+    const shipSpeed = parseFloat(speedSlider.value);
+    const probeSpeed = parseFloat(probeSpeedSlider.value);
+    
+    // Calculate remote ship's actual position (fixed in space, not relative to player)
+    const remoteActualX = remoteShipBaseX;
+    const remoteActualY = canvas.height/2 + verticalAmp * Math.sin(simTime * shipSpeed * (2 * Math.PI / 4));
+    
+    // Calculate true 2D distance for light-lag
+    const actual2DDistance = Math.sqrt(
+      Math.pow(remoteActualX - player.x, 2) + 
+      Math.pow(remoteActualY - player.y, 2)
+    );
+    const distance_ls = actual2DDistance / c_px_per_sec;
+    let delay = distance_ls; // default delay in seconds
+    if (probeActive && probePosition) {
+      const probeDist = Math.sqrt(
+        Math.pow(remoteActualX - probePosition.x, 2) + 
+        Math.pow(remoteActualY - probePosition.y, 2)
+      );
+      if (probeDist <= 80) { // within probe sensor range
+        delay = 0; // real-time view
+      }
+    }
+    // Remote ship positions already calculated above
+    // Remote ship perceived position (where it was 'delay' seconds ago)
+    const perceivedTime = simTime - distance_ls; // Always use full delay for the "light" image
+    const remotePerceivedX = remoteShipBaseX; // Ship's X doesn't change
+    const remotePerceivedY = canvas.height/2 + verticalAmp * Math.sin(perceivedTime * shipSpeed * (2 * Math.PI / 4));
+    // Clear canvas
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Draw player ship (yellow triangle)
+    ctx.fillStyle = '#ffff00';
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y - 10);
+    ctx.lineTo(player.x - 8, player.y + 6);
+    ctx.lineTo(player.x + 8, player.y + 6);
+    ctx.closePath();
+    ctx.fill();
+    // Draw remote ship actual position (gray outline circle)
+    ctx.strokeStyle = '#888';
+    ctx.beginPath();
+    ctx.arc(remoteActualX, remoteActualY, 6, 0, 2 * Math.PI);
+    ctx.stroke();
+    
+    // Draw the delayed/perceived position (light-based view)
+    // Only draw if not in probe range OR if hideGhostToggle is unchecked
+    const inProbeRange = probeActive && probePosition && delay === 0;
+    if (!inProbeRange || !hideGhostToggle.checked) {
+      ctx.fillStyle = '#3399ff';
+      ctx.globalAlpha = 0.6; // Make it semi-transparent to show it's a "ghost"
+      ctx.beginPath();
+      ctx.arc(remotePerceivedX, remotePerceivedY, 6, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.globalAlpha = 1.0;
+    }
+    
+    // If within probe range, also draw real-time position
+    if (probeActive && probePosition && delay === 0) {
+      // Draw real-time view with probe sensor styling
+      ctx.fillStyle = '#00ff99';
+      ctx.beginPath();
+      ctx.arc(remoteActualX, remoteActualY, 6, 0, 2 * Math.PI);
+      ctx.fill();
+      
+      // Draw a small "sensor lock" indicator
+      ctx.strokeStyle = '#00ff99';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(remoteActualX, remoteActualY, 10, 0, 2 * Math.PI);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+    // Update probe position if it moves
+    if (probeActive && probePosition && probeMoveToggle.checked) {
+      probePhase += deltaSeconds * probeSpeed;
+      // Oscillate between player position and right edge of canvas
+      const rightBoundary = canvas.width - 50; // Fixed point near right edge
+      const oscillation = (Math.sin(probePhase * 2 * Math.PI) + 1) / 2; // 0 to 1
+      probePosition.x = player.x + (rightBoundary - player.x) * oscillation;
+    }
+    
+    // If probe is active, draw it at its position
+    if (probeActive && probePosition) {
+      // Draw probe itself as a small diamond
+      ctx.fillStyle = '#00ff99';
+      ctx.beginPath();
+      ctx.moveTo(probePosition.x, probePosition.y - 8);
+      ctx.lineTo(probePosition.x + 6, probePosition.y);
+      ctx.lineTo(probePosition.x, probePosition.y + 8);
+      ctx.lineTo(probePosition.x - 6, probePosition.y);
+      ctx.closePath();
+      ctx.fill();
+      
+      // Draw sensor bubble (dashed circle) around probe
+      ctx.strokeStyle = '#00ff99';
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.arc(probePosition.x, probePosition.y, 80, 0, 2 * Math.PI);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    // Draw line between player and remote (visualize distance)
+    ctx.strokeStyle = '#444';
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y);
+    ctx.lineTo(remoteActualX, remoteActualY);
+    ctx.stroke();
+    
+    // Display actual 2D distance and lag
+    ctx.fillStyle = '#aaa';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('2D Distance: ' + distance_ls.toFixed(2) + ' light-sec (' + delay.toFixed(2) + ' sec lag)', 10, 390);
+    
+    // Display player speed
+    const playerSpeed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+    const speedPercent = (playerSpeed / playerMaxSpeed * 100).toFixed(0);
+    const speedInC = (playerSpeed / c_px_per_sec).toFixed(2);
+    ctx.fillText('Player Speed: ' + speedInC + 'c (' + speedPercent + '% of light speed)', 10, 375);
+    
+    // Draw speed indicator bar
+    ctx.strokeStyle = '#555';
+    ctx.strokeRect(10, 360, 100, 10);
+    ctx.fillStyle = playerSpeed > playerMaxSpeed * 0.8 ? '#ff9900' : '#00ff99';
+    ctx.fillRect(10, 360, playerSpeed / playerMaxSpeed * 100, 10);
+    requestAnimationFrame(drawFrame);
+  }
+  requestAnimationFrame(drawFrame);
+})();
+</script>
+</body>
+</html>
