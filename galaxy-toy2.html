@@ -17,7 +17,7 @@
   <div>Speed: <span id="speedDisplay">0.00</span>c</div>
   <div>Position: (<span id="posX">0</span>, <span id="posY">0</span>)</div>
   <div>Visible stars: <span id="visibleCount">0</span></div>
-  <div style="font-size: 10px; color: #888;">Density waves create spiral arms</div>
+  <div style="font-size: 10px; color: #888;">Barred spiral galaxy (like Milky Way)</div>
   <div style="font-size: 10px; color: #888;" id="densityInfo"></div>
 </div>
 <div id="controls">
@@ -36,6 +36,8 @@
   <label><input type="checkbox" id="showLightWavesToggle"> Show Light Waves</label>
   <label><input type="checkbox" id="showDensityToggle"> Show Density Field</label>
   <label><input type="checkbox" id="showArmsToggle" checked> Enable Density Waves</label>
+  <label>Bar Strength: <input type="range" id="barStrengthSlider" min="0" max="1" step="0.1" value="0.8"></label>
+  <span id="barStrengthLabel">0.8</span>
 </div>
 <canvas id="canvas"></canvas>
 <script>
@@ -48,6 +50,8 @@
   const showLightWavesToggle = document.getElementById('showLightWavesToggle');
   const showDensityToggle = document.getElementById('showDensityToggle');
   const showArmsToggle = document.getElementById('showArmsToggle');
+  const barStrengthSlider = document.getElementById('barStrengthSlider');
+  const barStrengthLabel = document.getElementById('barStrengthLabel');
   const speedDisplay = document.getElementById('speedDisplay');
   const posXDisplay = document.getElementById('posX');
   const posYDisplay = document.getElementById('posY');
@@ -62,11 +66,19 @@
   const historyDuration = 20; // seconds of position history to keep (balanced for performance)
   
   // Density wave parameters
-  const numArms = 2; // Number of spiral arms
-  const armTightness = 0.5; // How tightly wound the arms are
-  const densityWaveSpeed = 0.2; // rad/sec - pattern speed (slower than stars)
-  const densityAmplitude = 0.6; // Strength of density variation (0-1)
+  const numArms = 4; // Number of spiral arms (Milky Way has 4 major arms)
+  const armTightness = 0.3; // How tightly wound the arms are
+  const densityWaveSpeed = 0.15; // rad/sec - pattern speed (slower than stars)
+  const densityAmplitude = 0.7; // Strength of density variation (0-1)
+  
+  // Bar parameters (Milky Way's central bar)
+  const barLength = 120; // pixels (about 40% of galaxy radius)
+  const barWidth = 30; // pixels
+  const barSpeed = 0.25; // rad/sec - bars rotate faster than spiral arms
+  let barStrength = 0.8; // How much the bar affects orbits
+  
   let densityWaveAngle = 0; // Current rotation of the density pattern
+  let barAngle = 0; // Current rotation of the bar
   let densityWavesEnabled = true;
   
   // Player
@@ -106,6 +118,14 @@
   window.addEventListener('resize', resizeCanvas);
   resizeCanvas();
   
+  // Gaussian random number generator
+  function randomGaussian() {
+    let u = 0, v = 0;
+    while(u === 0) u = Math.random(); // Converting [0,1) to (0,1)
+    while(v === 0) v = Math.random();
+    return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+  }
+  
   // Generate disc galaxy
   function generateGalaxy() {
     // Initialize density wave angle for star generation
@@ -121,12 +141,23 @@
       const radiusJitter = (Math.random() - 0.5) * clusterNoise;
       const angleJitter = (Math.random() - 0.5) * 0.2;
       
-      const finalRadius = Math.max(30, radius + radiusJitter); // Min radius of 30px
-      const finalAngle = angle + angleJitter;
+      // Add central bulge population
+      let finalRadius, finalAngle;
+      if (i < numStars * 0.15) { // 15% of stars in central bulge
+        // Bulge has exponential density profile
+        const bulgeRadius = 80; // pixels
+        finalRadius = Math.abs(randomGaussian() * bulgeRadius * 0.3) + 10;
+        finalAngle = Math.random() * 2 * Math.PI;
+      } else {
+        finalRadius = Math.max(30, radius + radiusJitter); // Min radius of 30px
+        finalAngle = angle + angleJitter;
+      }
       
       // Determine if star is in a high-density region at creation
       const creationDensity = getDensityAt(finalRadius, finalAngle);
-      const isYoungStar = Math.random() < creationDensity * 0.3; // 30% chance in arms
+      const isYoungStar = Math.random() < creationDensity * 0.4; // 40% chance in arms
+      const isBarStar = finalRadius < barLength && Math.random() < 0.7; // 70% of bar stars are old
+      const isBulgeStar = finalRadius < 80; // Bulge stars
       
       const star = {
         id: i,
@@ -135,9 +166,9 @@
         angularVelocity: getOrbitalVelocity(finalRadius), // rad/sec based on radius
         // Add some individual characteristics
         brightness: isYoungStar ? 0.8 + Math.random() * 0.2 : 0.4 + Math.random() * 0.4,
-        color: isYoungStar ? '#aaccff' : (Math.random() > 0.5 ? '#ffffcc' : '#ffccaa'),
+        color: isBulgeStar ? '#ffbb77' : (isBarStar ? '#ffaa88' : (isYoungStar ? '#aaccff' : (Math.random() > 0.5 ? '#ffffcc' : '#ffccaa'))),
         size: isYoungStar ? 1.5 + Math.random() * 1.5 : 1 + Math.random() * 1.5,
-        age: isYoungStar ? 0 : Math.random() * 10 // Young blue stars vs older stars
+        age: isYoungStar ? 0 : (isBulgeStar ? 15 + Math.random() * 5 : (isBarStar ? 10 + Math.random() * 5 : Math.random() * 10)) // Bulge stars are oldest
       };
       
       stars.push(star);
@@ -156,38 +187,89 @@
   function getDensityAt(radius, angle) {
     if (!densityWavesEnabled) return 1.0;
     
-    // Logarithmic spiral equation: r = a * e^(b*theta)
-    // We invert this to find where the arm should be at this radius
-    const armSpacing = 2 * Math.PI / numArms;
-    
-    let maxDensity = 0;
-    for (let arm = 0; arm < numArms; arm++) {
-      // Calculate expected angle for this arm at this radius
-      const baseAngle = arm * armSpacing + densityWaveAngle;
-      const spiralAngle = baseAngle + armTightness * Math.log(radius / 50);
+    // First, check if we're in the bar region
+    let barDensity = 0;
+    if (radius < barLength) {
+      // Calculate position relative to bar
+      const x = radius * Math.cos(angle);
+      const y = radius * Math.sin(angle);
       
-      // Calculate angular distance to nearest arm
-      let angleDiff = angle - spiralAngle;
-      // Normalize to [-PI, PI]
-      while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-      while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+      // Rotate to bar coordinates
+      const barX = x * Math.cos(-barAngle) - y * Math.sin(-barAngle);
+      const barY = x * Math.sin(-barAngle) + y * Math.cos(-barAngle);
       
-      // Gaussian density profile across the arm
-      const armWidth = 0.3; // radians
-      const density = Math.exp(-(angleDiff * angleDiff) / (2 * armWidth * armWidth));
-      maxDensity = Math.max(maxDensity, density);
+      // Check if within bar bounds
+      if (Math.abs(barX) < barLength && Math.abs(barY) < barWidth) {
+        // Smooth density profile within bar
+        const xFactor = 1 - Math.pow(Math.abs(barX) / barLength, 2);
+        const yFactor = 1 - Math.pow(Math.abs(barY) / barWidth, 2);
+        barDensity = xFactor * yFactor * barStrength;
+      }
     }
     
-    // Return density between (1 - amplitude) and 1
-    return 1 - densityAmplitude + densityAmplitude * maxDensity;
+    // Calculate spiral arm density
+    let spiralDensity = 0;
+    if (radius > barLength * 0.7) { // Arms start from bar ends
+      const armSpacing = 2 * Math.PI / numArms;
+      
+      for (let arm = 0; arm < numArms; arm++) {
+        // Arms emerge from bar ends (2 main arms) and between (2 minor arms)
+        const armOffset = (arm % 2) * Math.PI; // Alternate between bar ends
+        const baseAngle = arm * armSpacing + densityWaveAngle + barAngle + armOffset;
+        
+        // Logarithmic spiral with pitch angle
+        const pitchAngle = 12 * Math.PI / 180; // 12 degrees (Milky Way's pitch)
+        const spiralAngle = baseAngle + Math.log(radius / barLength) / Math.tan(pitchAngle);
+        
+        // Calculate angular distance to nearest arm
+        let angleDiff = angle - spiralAngle;
+        while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+        while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+        
+        // Arm width varies with radius (wider further out)
+        const armWidth = 0.2 + 0.1 * (radius / galaxyRadius);
+        const armDensity = Math.exp(-(angleDiff * angleDiff) / (2 * armWidth * armWidth));
+        
+        // Major arms (0, 2) are stronger than minor arms (1, 3)
+        const armStrength = (arm % 2 === 0) ? 1.0 : 0.6;
+        spiralDensity = Math.max(spiralDensity, armDensity * armStrength);
+      }
+      
+      // Add some inter-arm features (spurs and feathers)
+      const spurFreq = 8;
+      const spurAngle = angle * spurFreq + radius * 0.01;
+      const spurDensity = 0.3 * Math.max(0, Math.sin(spurAngle));
+      spiralDensity = Math.min(1, spiralDensity + spurDensity * 0.3);
+    }
+    
+    // Combine bar and spiral densities
+    const totalDensity = Math.min(1, barDensity + spiralDensity * densityAmplitude);
+    return 1 - densityAmplitude + densityAmplitude * totalDensity;
   }
   
-  // Modify velocity based on local density (stars slow down in arms)
+  // Modify velocity based on local density and bar potential
   function getVelocityModifier(radius, angle) {
     const density = getDensityAt(radius, angle);
+    
+    // Additional effects from bar's gravitational potential
+    let barEffect = 0;
+    if (radius < barLength * 1.5) {
+      // Calculate position relative to bar
+      const x = radius * Math.cos(angle);
+      const y = radius * Math.sin(angle);
+      
+      // Rotate to bar coordinates
+      const barX = x * Math.cos(-barAngle) - y * Math.sin(-barAngle);
+      const barY = x * Math.sin(-barAngle) + y * Math.cos(-barAngle);
+      
+      // Bar creates orbital resonances
+      const resonanceAngle = Math.atan2(barY, barX);
+      barEffect = 0.2 * Math.cos(2 * resonanceAngle) * Math.exp(-radius / (barLength * 2));
+    }
+    
     // In high density regions, stars move slower
-    // This creates the "traffic jam" effect that maintains spiral structure
-    return 2 - density; // Returns 1.0 to 1.6 (slower in arms)
+    // Bar resonances can speed up or slow down orbits
+    return 2 - density + barEffect; // Returns 0.8 to 1.8
   }
   
   // Calculate Doppler shift color
@@ -272,6 +354,12 @@
     localStorage.setItem('galaxyToy2ShowArms', densityWavesEnabled);
   });
   
+  barStrengthSlider.addEventListener('input', () => {
+    barStrength = parseFloat(barStrengthSlider.value);
+    barStrengthLabel.textContent = barStrength.toFixed(1);
+    localStorage.setItem('galaxyToy2BarStrength', barStrength);
+  });
+  
   // Load settings
   function loadSettings() {
     const savedSpeed = localStorage.getItem('galaxyToyPlayerSpeed');
@@ -306,6 +394,13 @@
       densityWavesEnabled = savedArms === 'true';
       showArmsToggle.checked = densityWavesEnabled;
     }
+    
+    const savedBarStrength = localStorage.getItem('galaxyToy2BarStrength');
+    if (savedBarStrength) {
+      barStrength = parseFloat(savedBarStrength);
+      barStrengthSlider.value = barStrength;
+      barStrengthLabel.textContent = barStrength.toFixed(1);
+    }
   }
   
   // Animation loop
@@ -315,9 +410,10 @@
     simTime += deltaSeconds;
     lastTimestamp = timestamp;
     
-    // Update density wave rotation
+    // Update density wave and bar rotation
     if (densityWavesEnabled) {
       densityWaveAngle += densityWaveSpeed * deltaSeconds;
+      barAngle += barSpeed * deltaSeconds;
     }
     
     // Update player physics
@@ -439,21 +535,26 @@
     // Draw density field if enabled
     if (showDensity && densityWavesEnabled) {
       ctx.save();
-      ctx.globalAlpha = 0.2;
-      const gridSize = 20;
+      ctx.globalAlpha = 0.3;
+      const gridSize = 10;
       for (let x = 0; x < canvas.width; x += gridSize) {
         for (let y = 0; y < canvas.height; y += gridSize) {
           const dx = x - galacticCenter.x;
           const dy = y - galacticCenter.y;
           const radius = Math.sqrt(dx * dx + dy * dy);
-          if (radius < 20 || radius > galaxyRadius) continue;
+          if (radius < 10 || radius > galaxyRadius + 50) continue;
           
           const angle = Math.atan2(dy, dx);
           const density = getDensityAt(radius, angle);
-          const brightness = Math.floor((density - 0.4) * 255 / 0.6);
+          const brightness = Math.floor((density - 0.3) * 255 / 0.7);
           
-          if (brightness > 20) {
-            ctx.fillStyle = `rgb(${brightness/4}, ${brightness/4}, ${brightness/2})`;
+          if (brightness > 10) {
+            // Color based on structure: bar is redder, arms are bluer
+            const inBar = radius < barLength;
+            const r = inBar ? brightness/3 : brightness/5;
+            const g = brightness/5;
+            const b = inBar ? brightness/5 : brightness/3;
+            ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
             ctx.fillRect(x - gridSize/2, y - gridSize/2, gridSize, gridSize);
           }
         }
@@ -461,11 +562,40 @@
       ctx.restore();
     }
     
-    // Draw galactic center
-    ctx.fillStyle = '#666';
+    // Draw galactic center and bar structure
+    if (densityWavesEnabled) {
+      // Draw the bar
+      ctx.save();
+      ctx.translate(galacticCenter.x, galacticCenter.y);
+      ctx.rotate(barAngle);
+      
+      // Bar glow effect
+      const gradient = ctx.createLinearGradient(-barLength, 0, barLength, 0);
+      gradient.addColorStop(0, 'rgba(255, 200, 150, 0.0)');
+      gradient.addColorStop(0.3, 'rgba(255, 200, 150, 0.1)');
+      gradient.addColorStop(0.5, 'rgba(255, 200, 150, 0.2)');
+      gradient.addColorStop(0.7, 'rgba(255, 200, 150, 0.1)');
+      gradient.addColorStop(1, 'rgba(255, 200, 150, 0.0)');
+      
+      ctx.fillStyle = gradient;
+      ctx.fillRect(-barLength, -barWidth * 2, barLength * 2, barWidth * 4);
+      
+      ctx.restore();
+    }
+    
+    // Draw galactic center (supermassive black hole)
+    ctx.fillStyle = '#fff';
     ctx.beginPath();
-    ctx.arc(galacticCenter.x, galacticCenter.y, 5, 0, 2 * Math.PI);
+    ctx.arc(galacticCenter.x, galacticCenter.y, 3, 0, 2 * Math.PI);
     ctx.fill();
+    
+    // Draw accretion disk glow
+    ctx.strokeStyle = '#ff9966';
+    ctx.globalAlpha = 0.5;
+    ctx.beginPath();
+    ctx.arc(galacticCenter.x, galacticCenter.y, 8, 0, 2 * Math.PI);
+    ctx.stroke();
+    ctx.globalAlpha = 1.0;
     
     // Draw light waves if enabled
     if (showLightWaves) {
@@ -627,7 +757,8 @@
     // Update density info
     if (densityWavesEnabled) {
       const patternRotation = (densityWaveAngle * 180 / Math.PI) % 360;
-      densityInfoDisplay.textContent = `Pattern rotation: ${patternRotation.toFixed(1)}°`;
+      const barRotation = (barAngle * 180 / Math.PI) % 360;
+      densityInfoDisplay.textContent = `Bar: ${barRotation.toFixed(1)}° | Arms: ${patternRotation.toFixed(1)}°`;
     } else {
       densityInfoDisplay.textContent = '';
     }
