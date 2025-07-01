@@ -48,16 +48,16 @@
   <label><input type="checkbox" id="showLagToggle"> Show Lag Time</label>
   <label><input type="checkbox" id="pauseToggle"> Pause</label>
   <label>Autopilot Target: <select id="autopilotTargetSelect">
-    <option value="0">◆ 512c</option>
-    <option value="1">▲ 256c</option>
-    <option value="2">● 128c</option>
-    <option value="3">■ 64c</option>
-    <option value="4">★ 32c</option>
-    <option value="5">♦ 16c</option>
-    <option value="6">▼ 8c</option>
-    <option value="7">◐ 4c</option>
-    <option value="8">✦ 2c</option>
-    <option value="9">◈ 1c</option>
+    <option value="0">◆ 16c</option>
+    <option value="1">▲ 8c</option>
+    <option value="2">● 4c</option>
+    <option value="3">■ 2c</option>
+    <option value="4">★ 1.5c</option>
+    <option value="5">♦ 1c</option>
+    <option value="6">▼ 0.75c</option>
+    <option value="7">◐ 0.5c</option>
+    <option value="8">✦ 0.25c</option>
+    <option value="9">◈ 0.1c</option>
   </select></label>
   <label><button id="autopilotButton">Autopilot</button></label>
   <label>Image Separation: <select id="separationSelect">
@@ -125,8 +125,8 @@
   // AI Ships - 10 different ships with unique symbols
   const aiSymbols = ['◆', '▲', '●', '■', '★', '♦', '▼', '◐', '✦', '◈'];
   const aiColors = ['#0ff', '#f0f', '#ff0', '#0f0', '#f60', '#66f', '#f66', '#6ff', '#f6f', '#6f6'];
-  // Top 10 speeds: 512c, 256c, 128c, 64c, 32c, 16c, 8c, 4c, 2c, 1c
-  const aiSpeeds = [512, 256, 128, 64, 32, 16, 8, 4, 2, 1];
+  // Bottom 10 speeds: 16c, 8c, 4c, 2c, 1.5c, 1c, 0.75c, 0.5c, 0.25c
+  const aiSpeeds = [16, 8, 4, 2, 1.5, 1, 0.75, 0.5, 0.25, 0.1];
   const aiShips = [];
   
   for (let i = 0; i < 10; i++) {
