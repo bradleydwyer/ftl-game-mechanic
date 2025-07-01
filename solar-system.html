@@ -220,29 +220,28 @@
       }
     });
     
-    // AI ship history (stationary at start)
+    // AI ship history - start empty (no pre-history for moving objects)
+    // This prevents seeing the ship before light has reached us
     const aiHistory = positionHistories.get('ai');
-    for (let t = -historyDuration; t <= 0; t += 10) {
-      aiHistory.push({
-        x: aiShip.x,
-        y: aiShip.y,
-        vx: 0,
-        vy: 0,
-        time: t
-      });
-    }
+    // Just add current position
+    aiHistory.push({
+      x: aiShip.x,
+      y: aiShip.y,
+      vx: 0,
+      vy: 0,
+      time: 0
+    });
     
-    // Player history (stationary at start)
+    // Player history - start empty (no pre-history for moving objects)
     const playerHistory = positionHistories.get('player');
-    for (let t = -historyDuration; t <= 0; t += 10) {
-      playerHistory.push({
-        x: player.x,
-        y: player.y,
-        vx: 0,
-        vy: 0,
-        time: t
-      });
-    }
+    // Just add current position
+    playerHistory.push({
+      x: player.x,
+      y: player.y,
+      vx: 0,
+      vy: 0,
+      time: 0
+    });
   }
   
   // Resize canvas
@@ -827,6 +826,29 @@
     // Helper function to find single visible position (for objects that don't move FTL)
     const findVisiblePosition = (history, observerX, observerY) => {
       const positions = findAllVisiblePositions(history, observerX, observerY);
+      
+      // If no position found and we're early in simulation, check if object is close enough to be visible
+      if (positions.length === 0 && simTime < 10 && history.length > 0) {
+        const latestPos = history[history.length - 1];
+        const distance = Math.sqrt(
+          Math.pow(observerX - latestPos.x, 2) + 
+          Math.pow(observerY - latestPos.y, 2)
+        );
+        const lightTravelTime = distance / c_au_per_sec;
+        
+        // If light travel time is less than simulation time, object should be visible
+        if (lightTravelTime <= simTime) {
+          return {
+            x: latestPos.x,
+            y: latestPos.y,
+            vx: latestPos.vx,
+            vy: latestPos.vy,
+            time: latestPos.time,
+            timeSinceEmission: simTime - latestPos.time
+          };
+        }
+      }
+      
       return positions.length > 0 ? positions[0] : null;
     };
     
