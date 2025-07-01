@@ -35,6 +35,7 @@
   <label><input type="checkbox" id="showTrailsToggle"> Show Light Trails</label>
   <label><input type="checkbox" id="showLightWavesToggle"> Show Light Waves</label>
   <label><input type="checkbox" id="showDensityToggle"> Show Density Field</label>
+  <label><input type="checkbox" id="showStarsToggle" checked> Show Stars</label>
   <label><input type="checkbox" id="showArmsToggle" checked> Enable Density Waves</label>
   <label>Bar Strength: <input type="range" id="barStrengthSlider" min="0" max="1" step="0.1" value="0.8"></label>
   <span id="barStrengthLabel">0.8</span>
@@ -49,6 +50,7 @@
   const showTrailsToggle = document.getElementById('showTrailsToggle');
   const showLightWavesToggle = document.getElementById('showLightWavesToggle');
   const showDensityToggle = document.getElementById('showDensityToggle');
+  const showStarsToggle = document.getElementById('showStarsToggle');
   const showArmsToggle = document.getElementById('showArmsToggle');
   const barStrengthSlider = document.getElementById('barStrengthSlider');
   const barStrengthLabel = document.getElementById('barStrengthLabel');
@@ -103,6 +105,7 @@
   let showActual = false;
   let showTrails = false;
   let showDensity = false;
+  let showStars = true;
   
   // Resize canvas
   function resizeCanvas() {
@@ -349,6 +352,11 @@
     localStorage.setItem('galaxyToy2ShowDensity', showDensity);
   });
   
+  showStarsToggle.addEventListener('change', () => {
+    showStars = showStarsToggle.checked;
+    localStorage.setItem('galaxyToy2ShowStars', showStars);
+  });
+  
   showArmsToggle.addEventListener('change', () => {
     densityWavesEnabled = showArmsToggle.checked;
     localStorage.setItem('galaxyToy2ShowArms', densityWavesEnabled);
@@ -387,6 +395,12 @@
     if (savedDensity) {
       showDensity = savedDensity === 'true';
       showDensityToggle.checked = showDensity;
+    }
+    
+    const savedShowStars = localStorage.getItem('galaxyToy2ShowStars');
+    if (savedShowStars) {
+      showStars = savedShowStars === 'true';
+      showStarsToggle.checked = showStars;
     }
     
     const savedArms = localStorage.getItem('galaxyToy2ShowArms');
@@ -535,8 +549,8 @@
     // Draw density field if enabled
     if (showDensity && densityWavesEnabled) {
       ctx.save();
-      ctx.globalAlpha = 0.3;
-      const gridSize = 10;
+      ctx.globalAlpha = showStars ? 0.3 : 0.8; // More opaque when stars hidden
+      const gridSize = showStars ? 10 : 5; // Finer grid when stars hidden
       for (let x = 0; x < canvas.width; x += gridSize) {
         for (let y = 0; y < canvas.height; y += gridSize) {
           const dx = x - galacticCenter.x;
@@ -623,7 +637,8 @@
     let visibleCount = 0;
     const tolerance = 20; // Very large tolerance to ensure stable star visibility
     
-    stars.forEach(star => {
+    if (showStars) {
+      stars.forEach(star => {
       const history = starHistories.get(star.id);
       if (history.length === 0) return;
       
@@ -735,11 +750,14 @@
         ctx.stroke();
       }
     });
+    }
     
     ctx.globalAlpha = 1.0;
     
-    // Draw player
+    // Draw player (always visible)
     ctx.fillStyle = '#ffff00';
+    ctx.strokeStyle = '#ffff00';
+    ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(player.x, player.y - 8);
     ctx.lineTo(player.x - 6, player.y + 5);
@@ -747,12 +765,18 @@
     ctx.closePath();
     ctx.fill();
     
+    // Add outline when stars are hidden
+    if (!showStars) {
+      ctx.stroke();
+    }
+    ctx.lineWidth = 1;
+    
     // Update info display
     const playerSpeed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
     speedDisplay.textContent = (playerSpeed / c_px_per_sec).toFixed(2);
     posXDisplay.textContent = Math.round(player.x - galacticCenter.x);
     posYDisplay.textContent = Math.round(player.y - galacticCenter.y);
-    visibleCountDisplay.textContent = visibleCount;
+    visibleCountDisplay.textContent = showStars ? visibleCount : 'hidden';
     
     // Update density info
     if (densityWavesEnabled) {
