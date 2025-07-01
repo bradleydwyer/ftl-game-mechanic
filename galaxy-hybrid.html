@@ -64,7 +64,7 @@
   const timeScale = 1000; // 1 real second = 1000 years
   
   const galacticCenter = { x: 0, y: 0 }; // Will be set to canvas center
-  const numStars = 2000; // Reduced for better performance
+  const numStars = 5000;
   const galaxyRadius = 300; // pixels = 50,000 ly
   const spiralTurns = 3; // number of spiral arms
   const historyDuration = 20; // seconds of position history (balanced for performance)
@@ -106,24 +106,27 @@
   window.addEventListener('resize', resizeCanvas);
   resizeCanvas();
   
-  // Generate spiral galaxy
+  // Generate disc galaxy
   function generateGalaxy() {
     for (let i = 0; i < numStars; i++) {
-      const t = i / numStars;
-      const radius = galaxyRadius * (0.2 + 0.8 * t);
-      const angle = t * spiralTurns * 2 * Math.PI;
+      // Use random distribution for a full disc
+      const r = Math.random();
+      const radius = galaxyRadius * (0.1 + 0.9 * Math.sqrt(r)); // Square root for even distribution
+      const angle = Math.random() * 2 * Math.PI; // Random angle
       
-      const radiusJitter = (Math.random() - 0.5) * 20;
-      const angleJitter = (Math.random() - 0.5) * 0.3;
+      // Add some clustering for visual interest
+      const clusterNoise = Math.random() < 0.3 ? 30 : 10;
+      const radiusJitter = (Math.random() - 0.5) * clusterNoise;
+      const angleJitter = (Math.random() - 0.5) * 0.2;
       
-      const r = radius + radiusJitter;
-      const a = angle + angleJitter;
+      const finalRadius = Math.max(30, radius + radiusJitter); // Min radius of 30px
+      const finalAngle = angle + angleJitter;
       
       const star = {
         id: i,
-        radius: r,
-        angle: a,
-        angularVelocity: getOrbitalVelocity(r),
+        radius: finalRadius,
+        angle: finalAngle,
+        angularVelocity: getOrbitalVelocity(finalRadius),
         brightness: 0.5 + Math.random() * 0.5,
         color: Math.random() > 0.7 ? '#ffffff' : Math.random() > 0.3 ? '#ffffcc' : '#ffcccc',
         size: 1 + Math.random() * 2
@@ -327,7 +330,7 @@
         history.shift();
       }
       
-      if (showLightWaves && simTime - lastWaveTime >= waveInterval && star.id % 100 === 0) {
+      if (showLightWaves && simTime - lastWaveTime >= waveInterval && star.id % 500 === 0) {
         lightWaves.push({
           x: actualX,
           y: actualY,

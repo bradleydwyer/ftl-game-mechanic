@@ -55,7 +55,7 @@
   const c_px_per_realsec = c_px_per_sec * timeScale; // ~12 px/s
   
   const galacticCenter = { x: 0, y: 0 }; // Will be set to canvas center
-  const numStars = 2000; // Reduced for better performance
+  const numStars = 5000;
   const galaxyRadius = 300; // pixels = 25,000 ly (keep it visible on screen)
   const spiralTurns = 3; // number of spiral arms
   const historyDuration = 1200; // real seconds of position history (1.2 million years) - balanced for performance
@@ -93,25 +93,27 @@
   window.addEventListener('resize', resizeCanvas);
   resizeCanvas();
   
-  // Generate spiral galaxy
+  // Generate disc galaxy
   function generateGalaxy() {
     for (let i = 0; i < numStars; i++) {
-      const t = i / numStars; // 0 to 1
-      const radius = galaxyRadius * (0.2 + 0.8 * t); // 20% to 100% of galaxy radius
-      const angle = t * spiralTurns * 2 * Math.PI;
+      // Use random distribution for a full disc
+      const r = Math.random();
+      const radius = galaxyRadius * (0.1 + 0.9 * Math.sqrt(r)); // Square root for even distribution
+      const angle = Math.random() * 2 * Math.PI; // Random angle
       
-      // Add some randomness for natural look
-      const radiusJitter = (Math.random() - 0.5) * 20;
-      const angleJitter = (Math.random() - 0.5) * 0.3;
+      // Add some clustering for visual interest
+      const clusterNoise = Math.random() < 0.3 ? 30 : 10;
+      const radiusJitter = (Math.random() - 0.5) * clusterNoise;
+      const angleJitter = (Math.random() - 0.5) * 0.2;
       
-      const r = radius + radiusJitter;
-      const a = angle + angleJitter;
+      const finalRadius = Math.max(30, radius + radiusJitter); // Min radius of 30px
+      const finalAngle = angle + angleJitter;
       
       const star = {
         id: i,
-        radius: r, // Orbital radius
-        angle: a, // Current angle
-        angularVelocity: getOrbitalVelocity(r), // rad/sec based on radius
+        radius: finalRadius, // Orbital radius
+        angle: finalAngle, // Current angle
+        angularVelocity: getOrbitalVelocity(finalRadius), // rad/sec based on radius
         // Add some individual characteristics
         brightness: 0.5 + Math.random() * 0.5,
         color: Math.random() > 0.5 ? '#ffffff' : '#ffffcc', // White or slightly yellow
