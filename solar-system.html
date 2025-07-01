@@ -996,21 +996,6 @@
     if (showActual) {
       const actualScreen = worldToScreen(aiShip.x, aiShip.y);
       
-      // Draw lines from all observed positions to actual position
-      aiPositions.forEach((aiPos, index) => {
-        const observedScreen = worldToScreen(aiPos.x, aiPos.y);
-        ctx.strokeStyle = '#0f9';
-        ctx.globalAlpha = 0.1 + 0.2 * (1 - index / Math.max(1, aiPositions.length - 1));
-        ctx.setLineDash([5, 5]);
-        ctx.beginPath();
-        ctx.moveTo(observedScreen.x, observedScreen.y);
-        ctx.lineTo(actualScreen.x, actualScreen.y);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      });
-      
-      ctx.globalAlpha = 1.0;
-      
       // Draw actual position outline
       ctx.strokeStyle = '#0f9';
       ctx.lineWidth = 2;
