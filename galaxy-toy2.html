@@ -36,7 +36,7 @@
   <label><input type="checkbox" id="showLightWavesToggle"> Show Light Waves</label>
   <label><input type="checkbox" id="showDensityToggle"> Show Density Field</label>
   <label><input type="checkbox" id="showStarsToggle" checked> Show Stars</label>
-  <label><input type="checkbox" id="showArmsToggle" checked> Enable Density Waves</label>
+  <label><input type="checkbox" id="showArmsToggle"> Enable Density Waves</label>
   <label><input type="checkbox" id="rotatePatternsToggle" checked> Rotate Density Patterns</label>
   <label>Bar Strength: <input type="range" id="barStrengthSlider" min="0" max="1" step="0.1" value="0.8"></label>
   <span id="barStrengthLabel">0.8</span>
@@ -83,7 +83,7 @@
   
   let densityWaveAngle = 0; // Current rotation of the density pattern
   let barAngle = 0; // Current rotation of the bar
-  let densityWavesEnabled = true;
+  let densityWavesEnabled = false; // Start disabled to show uniform distribution
   
   // Player
   const player = { x: 0, y: 0, vx: 0, vy: 0 };
@@ -134,9 +134,9 @@
   
   // Generate disc galaxy
   function generateGalaxy() {
-      // Initialize with random angles to avoid initial patterns
-    densityWaveAngle = Math.random() * Math.PI * 2;
-    barAngle = Math.random() * Math.PI * 2;
+      // Start with density waves OFF to see uniform distribution
+    densityWaveAngle = 0;
+    barAngle = 0;
     for (let i = 0; i < numStars; i++) {
       // Use random distribution for a full disc
       const r = Math.random();
@@ -159,37 +159,21 @@
         finalAngle = angle + angleJitter;
       }
       
-      // Determine star type - young stars strongly prefer high density regions
-      const creationDensity = getDensityAt(finalRadius, finalAngle);
-      const isYoungStar = Math.random() < (0.05 + creationDensity * 0.8); // 5-85% chance based on density
-      const isBarStar = finalRadius < barLength && Math.random() < 0.7; // 70% of bar stars are old
-      const isBulgeStar = finalRadius < 80; // Bulge stars
-      
-      // Place additional young stars specifically in arms
-      if (isYoungStar && Math.random() < 0.7) { // 70% of young stars forced to arms
-        // Find nearest arm
-        let bestArmAngle = finalAngle;
-        let maxDensity = creationDensity;
-        for (let a = 0; a < Math.PI * 2; a += 0.1) {
-          const testDensity = getDensityAt(finalRadius, a);
-          if (testDensity > maxDensity) {
-            maxDensity = testDensity;
-            bestArmAngle = a;
-          }
-        }
-        finalAngle = bestArmAngle + (Math.random() - 0.5) * 0.2; // Small scatter
-      }
+      // ALL stars start as old/medium age - NO young blue stars at start
+      const isBarStar = finalRadius < barLength;
+      const isBulgeStar = finalRadius < 80;
       
       const star = {
         id: i,
         radius: finalRadius, // Orbital radius
         angle: finalAngle, // Current angle
         angularVelocity: getOrbitalVelocity(finalRadius), // rad/sec based on radius
-        // Add some individual characteristics
-        brightness: isYoungStar ? 0.8 + Math.random() * 0.2 : 0.4 + Math.random() * 0.4,
-        color: isBulgeStar ? '#ffbb77' : (isBarStar ? '#ffaa88' : (isYoungStar ? '#aaccff' : (Math.random() > 0.5 ? '#ffffcc' : '#ffccaa'))),
-        size: isYoungStar ? 1.5 + Math.random() * 1.5 : 1 + Math.random() * 1.5,
-        age: isYoungStar ? 0 : (isBulgeStar ? 15 + Math.random() * 5 : (isBarStar ? 10 + Math.random() * 5 : Math.random() * 10)) // Bulge stars are oldest
+        // All stars start with similar characteristics
+        brightness: 0.5 + Math.random() * 0.3,
+        color: isBulgeStar ? '#ffbb77' : (isBarStar ? '#ffaa88' : (Math.random() > 0.5 ? '#ffffcc' : '#ffccaa')), // No blue stars
+        size: 1 + Math.random() * 1.5,
+        age: isBulgeStar ? 15 + Math.random() * 5 : (isBarStar ? 10 + Math.random() * 5 : 5 + Math.random() * 10), // All old
+        canFormNew: Math.random() < 0.01 // 1% chance to be able to form new stars
       };
       
       stars.push(star);
@@ -522,6 +506,19 @@
           const g = Math.floor(204 + 51 * ageFactor);
           const b = Math.floor(255 - 55 * ageFactor);
           star.color = `rgb(${r}, ${g}, ${b})`;
+        }
+      }
+      
+      // Star formation in high density regions (creates young blue stars)
+      if (densityWavesEnabled && star.canFormNew && Math.random() < 0.001) { // Low chance per frame
+        const currentDensity = getDensityAt(star.radius, star.angle);
+        if (currentDensity > 0.7 && Math.random() < currentDensity) { // Only in high density
+          // Transform into young star
+          star.age = 0;
+          star.color = '#aaccff'; // Bright blue
+          star.brightness = 0.9 + Math.random() * 0.1;
+          star.size = 2 + Math.random() * 1;
+          star.canFormNew = false; // Can only transform once
         }
       }
       
