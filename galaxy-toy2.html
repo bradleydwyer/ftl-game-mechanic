@@ -40,6 +40,9 @@
   <label><input type="checkbox" id="rotatePatternsToggle" checked> Rotate Density Patterns</label>
   <label>Bar Strength: <input type="range" id="barStrengthSlider" min="0" max="1" step="0.1" value="0.8"></label>
   <span id="barStrengthLabel">0.8</span>
+  <br>
+  <label>Pattern Speed: <input type="range" id="patternSpeedSlider" min="-0.1" max="0.1" step="0.005" value="0.02"></label>
+  <span id="patternSpeedLabel">0.02</span> rad/s
 </div>
 <canvas id="canvas"></canvas>
 <script>
@@ -56,6 +59,8 @@
   const rotatePatternsToggle = document.getElementById('rotatePatternsToggle');
   const barStrengthSlider = document.getElementById('barStrengthSlider');
   const barStrengthLabel = document.getElementById('barStrengthLabel');
+  const patternSpeedSlider = document.getElementById('patternSpeedSlider');
+  const patternSpeedLabel = document.getElementById('patternSpeedLabel');
   const speedDisplay = document.getElementById('speedDisplay');
   const posXDisplay = document.getElementById('posX');
   const posYDisplay = document.getElementById('posY');
@@ -72,13 +77,13 @@
   // Density wave parameters
   const numArms = 4; // Number of spiral arms (Milky Way has 4 major arms)
   const armTightness = 0.3; // How tightly wound the arms are
-  const densityWaveSpeed = 0.15; // rad/sec - pattern speed (slower than stars)
+  let densityWaveSpeed = 0.02; // rad/sec - pattern speed (adjustable)
   const densityAmplitude = 1.0; // Maximum density variation
   
   // Bar parameters (Milky Way's central bar)
   const barLength = 120; // pixels (about 40% of galaxy radius)
   const barWidth = 30; // pixels
-  const barSpeed = 0.25; // rad/sec - bars rotate faster than spiral arms
+  let barSpeed = 0.03; // rad/sec - bar rotation (linked to pattern speed)
   let barStrength = 0.8; // How much the bar affects orbits
   
   let densityWaveAngle = 0; // Current rotation of the density pattern
@@ -378,6 +383,13 @@
     localStorage.setItem('galaxyToy2BarStrength', barStrength);
   });
   
+  patternSpeedSlider.addEventListener('input', () => {
+    densityWaveSpeed = parseFloat(patternSpeedSlider.value);
+    barSpeed = densityWaveSpeed * 1.5; // Bar rotates 1.5x faster than arms
+    patternSpeedLabel.textContent = densityWaveSpeed.toFixed(3);
+    localStorage.setItem('galaxyToy2PatternSpeed', densityWaveSpeed);
+  });
+  
   // Load settings
   function loadSettings() {
     const savedSpeed = localStorage.getItem('galaxyToyPlayerSpeed');
@@ -430,6 +442,14 @@
     if (savedRotatePatterns) {
       rotatePatternsEnabled = savedRotatePatterns === 'true';
       rotatePatternsToggle.checked = rotatePatternsEnabled;
+    }
+    
+    const savedPatternSpeed = localStorage.getItem('galaxyToy2PatternSpeed');
+    if (savedPatternSpeed) {
+      densityWaveSpeed = parseFloat(savedPatternSpeed);
+      barSpeed = densityWaveSpeed * 1.5;
+      patternSpeedSlider.value = densityWaveSpeed;
+      patternSpeedLabel.textContent = densityWaveSpeed.toFixed(3);
     }
   }
   
