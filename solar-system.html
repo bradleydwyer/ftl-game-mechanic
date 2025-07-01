@@ -21,11 +21,9 @@
   <div>Speed: <span id="speedDisplay">0.00</span></div>
   <div>Position: <span id="posDisplay">(0.00, 0.00)</span> AU</div>
   <div>Light-lag to Earth: <span id="earthLagDisplay">0.0</span> min</div>
-  <div>Light-lag to AI: <span id="aiLagDisplay">0.0</span></div>
   <div>Visible objects: <span id="visibleCount">0</span></div>
   <div class="subtitle">Mouse wheel or +/- to zoom, Tab for camera mode</div>
   <div class="subtitle">Camera: <span id="cameraMode">Player</span></div>
-  <div class="subtitle">AI Ship: <span id="aiStatus">Initializing</span></div>
 </div>
 <div id="controls">
   <label>Max Speed: <select id="playerSpeedSelect">
@@ -49,21 +47,19 @@
   <label><input type="checkbox" id="showGridToggle"> Show Grid</label>
   <label><input type="checkbox" id="showLagToggle"> Show Lag Time</label>
   <label><input type="checkbox" id="pauseToggle"> Pause</label>
-  <label><button id="autopilotButton">Autopilot to AI</button></label>
-  <label>AI Speed: <select id="aiSpeedSelect">
-    <option value="0.25">0.25c</option>
-    <option value="0.5">0.5c</option>
-    <option value="1">1c</option>
-    <option value="2" selected>2c</option>
-    <option value="4">4c</option>
-    <option value="8">8c</option>
-    <option value="16">16c</option>
-    <option value="32">32c</option>
-    <option value="64">64c</option>
-    <option value="128">128c</option>
-    <option value="256">256c</option>
-    <option value="512">512c</option>
+  <label>Autopilot Target: <select id="autopilotTargetSelect">
+    <option value="0">◆ AI-1</option>
+    <option value="1">▲ AI-2</option>
+    <option value="2">● AI-3</option>
+    <option value="3">■ AI-4</option>
+    <option value="4">★ AI-5</option>
+    <option value="5">♦ AI-6</option>
+    <option value="6">▼ AI-7</option>
+    <option value="7">◐ AI-8</option>
+    <option value="8">✦ AI-9</option>
+    <option value="9">◈ AI-10</option>
   </select></label>
+  <label><button id="autopilotButton">Autopilot</button></label>
   <label>Image Separation: <select id="separationSelect">
     <option value="0.05">0.05s</option>
     <option value="0.1">0.1s</option>
@@ -98,17 +94,15 @@
   const showGridToggle = document.getElementById('showGridToggle');
   const showLagToggle = document.getElementById('showLagToggle');
   const pauseToggle = document.getElementById('pauseToggle');
-  const aiSpeedSelect = document.getElementById('aiSpeedSelect');
+  const autopilotTargetSelect = document.getElementById('autopilotTargetSelect');
   const separationSelect = document.getElementById('separationSelect');
   const samplingSelect = document.getElementById('samplingSelect');
   const autopilotButton = document.getElementById('autopilotButton');
   const speedDisplay = document.getElementById('speedDisplay');
   const posDisplay = document.getElementById('posDisplay');
   const earthLagDisplay = document.getElementById('earthLagDisplay');
-  const aiLagDisplay = document.getElementById('aiLagDisplay');
   const visibleCountDisplay = document.getElementById('visibleCount');
   const cameraModeDisplay = document.getElementById('cameraMode');
-  const aiStatusDisplay = document.getElementById('aiStatus');
   
   // Constants
   const AU = 1; // 1 AU in our units
@@ -128,19 +122,28 @@
   const playerFriction = 0.95;
   const keysPressed = {};
   
-  // AI Ship - start closer for quicker light travel
-  const aiShip = {
-    x: 2,
-    y: 0,
-    vx: 0,
-    vy: 0,
-    targetPlanet: null,
-    speed: 2, // Current speed in c
-    pathPoints: [],
-    pathProgress: 0,
-    decisionTime: 0,
-    status: 'idle'
-  };
+  // AI Ships - 10 different ships with unique symbols
+  const aiSymbols = ['◆', '▲', '●', '■', '★', '♦', '▼', '◐', '✦', '◈'];
+  const aiColors = ['#0ff', '#f0f', '#ff0', '#0f0', '#f60', '#66f', '#f66', '#6ff', '#f6f', '#6f6'];
+  const aiShips = [];
+  
+  for (let i = 0; i < 10; i++) {
+    aiShips.push({
+      id: i,
+      symbol: aiSymbols[i],
+      color: aiColors[i],
+      x: Math.random() * 10 - 5, // Random start position within 5 AU
+      y: Math.random() * 10 - 5,
+      vx: 0,
+      vy: 0,
+      targetPlanet: null,
+      speed: Math.pow(2, Math.floor(Math.random() * 5)), // Random speed: 1c, 2c, 4c, 8c, or 16c
+      pathPoints: [],
+      pathProgress: 0,
+      decisionTime: Math.random() * 10, // Stagger initial decisions
+      status: 'idle'
+    });
+  }
   
   // Solar System Data
   const sun = { name: 'Sun', x: 0, y: 0, radius: 0.05, color: '#ffff00' };
@@ -198,7 +201,11 @@
       positionHistories.set(planet.name, []);
     });
     positionHistories.set('player', []);
-    positionHistories.set('ai', []);
+    
+    // Initialize histories for all AI ships
+    aiShips.forEach((ai, i) => {
+      positionHistories.set(`ai${i}`, []);
+    });
     
     // Pre-populate history for all objects so light has time to reach player
     const historyDuration = 7200; // 2 hours should be enough for light to cross the solar system
@@ -229,16 +236,18 @@
       }
     });
     
-    // AI ship history - start empty (no pre-history for moving objects)
-    // This prevents seeing the ship before light has reached us
-    const aiHistory = positionHistories.get('ai');
-    // Just add current position
-    aiHistory.push({
-      x: aiShip.x,
-      y: aiShip.y,
-      vx: 0,
-      vy: 0,
-      time: 0
+    // AI ships history - start empty (no pre-history for moving objects)
+    // This prevents seeing the ships before light has reached us
+    aiShips.forEach((ai, i) => {
+      const aiHistory = positionHistories.get(`ai${i}`);
+      // Just add current position
+      aiHistory.push({
+        x: ai.x,
+        y: ai.y,
+        vx: 0,
+        vy: 0,
+        time: 0
+      });
     });
     
     // Player history - start empty (no pre-history for moving objects)
@@ -401,11 +410,6 @@
     paused = pauseToggle.checked;
   });
   
-  aiSpeedSelect.addEventListener('change', () => {
-    aiShip.speed = parseFloat(aiSpeedSelect.value);
-    localStorage.setItem('solarSystemAISpeed', aiShip.speed);
-  });
-  
   separationSelect.addEventListener('change', () => {
     imageSeparation = parseFloat(separationSelect.value);
     localStorage.setItem('solarSystemImageSeparation', imageSeparation);
@@ -418,15 +422,17 @@
   
   autopilotButton.addEventListener('click', () => {
     if (!autopilotActive) {
-      // Activate autopilot - target AI's current actual position
+      // Activate autopilot - target selected AI's current actual position
+      const targetIndex = parseInt(autopilotTargetSelect.value);
+      const targetAI = aiShips[targetIndex];
       autopilotActive = true;
-      autopilotTarget = { x: aiShip.x, y: aiShip.y };
+      autopilotTarget = { x: targetAI.x, y: targetAI.y, ai: targetAI };
       autopilotButton.textContent = 'Cancel Autopilot';
       autopilotButton.style.backgroundColor = '#ff6666';
     } else {
       // Cancel autopilot
       autopilotActive = false;
-      autopilotButton.textContent = 'Autopilot to AI';
+      autopilotButton.textContent = 'Autopilot';
       autopilotButton.style.backgroundColor = '';
     }
   });
@@ -472,11 +478,6 @@
       showLagToggle.checked = showLagTime;
     }
     
-    const savedAISpeed = localStorage.getItem('solarSystemAISpeed');
-    if (savedAISpeed) {
-      aiShip.speed = parseFloat(savedAISpeed);
-      aiSpeedSelect.value = savedAISpeed;
-    }
     
     const savedSeparation = localStorage.getItem('solarSystemImageSeparation');
     if (savedSeparation) {
@@ -491,67 +492,65 @@
     }
   }
   
-  // AI Ship decision making
-  function updateAIShip(deltaSeconds) {
-    aiShip.decisionTime -= deltaSeconds;
-    
-    if (aiShip.decisionTime <= 0 || aiShip.pathPoints.length === 0) {
-      // Make a new decision
-      const availablePlanets = planets.filter(p => p !== aiShip.targetPlanet);
-      aiShip.targetPlanet = availablePlanets[Math.floor(Math.random() * availablePlanets.length)];
+  // AI Ships decision making
+  function updateAIShips(deltaSeconds) {
+    aiShips.forEach(ai => {
+      ai.decisionTime -= deltaSeconds;
       
-      // Calculate target position (where planet will be)
-      const targetX = aiShip.targetPlanet.orbitalRadius * Math.cos(aiShip.targetPlanet.angle);
-      const targetY = aiShip.targetPlanet.orbitalRadius * Math.sin(aiShip.targetPlanet.angle);
-      
-      // Create bezier curve path
-      const dx = targetX - aiShip.x;
-      const dy = targetY - aiShip.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      
-      // Keep user-selected speed (don't override)
-      
-      // Create control points for smooth curve
-      const midX = (aiShip.x + targetX) / 2 + (Math.random() - 0.5) * distance * 0.3;
-      const midY = (aiShip.y + targetY) / 2 + (Math.random() - 0.5) * distance * 0.3;
-      
-      // Generate path points
-      aiShip.pathPoints = [];
-      for (let t = 0; t <= 1; t += 0.02) {
-        const x = (1-t)*(1-t)*aiShip.x + 2*(1-t)*t*midX + t*t*targetX;
-        const y = (1-t)*(1-t)*aiShip.y + 2*(1-t)*t*midY + t*t*targetY;
-        aiShip.pathPoints.push({x, y});
+      if (ai.decisionTime <= 0 || ai.pathPoints.length === 0) {
+        // Make a new decision
+        const availablePlanets = planets.filter(p => p !== ai.targetPlanet);
+        ai.targetPlanet = availablePlanets[Math.floor(Math.random() * availablePlanets.length)];
+        
+        // Calculate target position (where planet will be)
+        const targetX = ai.targetPlanet.orbitalRadius * Math.cos(ai.targetPlanet.angle);
+        const targetY = ai.targetPlanet.orbitalRadius * Math.sin(ai.targetPlanet.angle);
+        
+        // Create bezier curve path
+        const dx = targetX - ai.x;
+        const dy = targetY - ai.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        // Create control points for smooth curve
+        const midX = (ai.x + targetX) / 2 + (Math.random() - 0.5) * distance * 0.3;
+        const midY = (ai.y + targetY) / 2 + (Math.random() - 0.5) * distance * 0.3;
+        
+        // Generate path points
+        ai.pathPoints = [];
+        for (let t = 0; t <= 1; t += 0.02) {
+          const x = (1-t)*(1-t)*ai.x + 2*(1-t)*t*midX + t*t*targetX;
+          const y = (1-t)*(1-t)*ai.y + 2*(1-t)*t*midY + t*t*targetY;
+          ai.pathPoints.push({x, y});
+        }
+        
+        ai.pathProgress = 0;
+        ai.decisionTime = 30 + Math.random() * 30; // 30-60 seconds
+        ai.status = `Flying to ${ai.targetPlanet.name} at ${ai.speed}c`;
       }
       
-      aiShip.pathProgress = 0;
-      aiShip.decisionTime = 30 + Math.random() * 30; // 30-60 seconds
-      aiShip.status = `Flying to ${aiShip.targetPlanet.name} at ${aiShip.speed}c`;
-    }
-    
-    // Move along path
-    if (aiShip.pathPoints.length > 0 && aiShip.pathProgress < aiShip.pathPoints.length - 1) {
-      const speed = aiShip.speed * c_au_per_realsec;
-      const currentPoint = aiShip.pathPoints[Math.floor(aiShip.pathProgress)];
-      const nextPoint = aiShip.pathPoints[Math.min(Math.floor(aiShip.pathProgress) + 1, aiShip.pathPoints.length - 1)];
-      
-      const dx = nextPoint.x - currentPoint.x;
-      const dy = nextPoint.y - currentPoint.y;
-      const segmentLength = Math.sqrt(dx * dx + dy * dy);
-      
-      if (segmentLength > 0) {
-        aiShip.vx = (dx / segmentLength) * speed;
-        aiShip.vy = (dy / segmentLength) * speed;
+      // Move along path
+      if (ai.pathPoints.length > 0 && ai.pathProgress < ai.pathPoints.length - 1) {
+        const speed = ai.speed * c_au_per_realsec;
+        const currentPoint = ai.pathPoints[Math.floor(ai.pathProgress)];
+        const nextPoint = ai.pathPoints[Math.min(Math.floor(ai.pathProgress) + 1, ai.pathPoints.length - 1)];
         
-        aiShip.x += aiShip.vx * deltaSeconds;
-        aiShip.y += aiShip.vy * deltaSeconds;
+        const dx = nextPoint.x - currentPoint.x;
+        const dy = nextPoint.y - currentPoint.y;
+        const segmentLength = Math.sqrt(dx * dx + dy * dy);
         
-        // Update progress
-        const stepSize = speed * deltaSeconds / segmentLength;
-        aiShip.pathProgress += stepSize;
+        if (segmentLength > 0) {
+          ai.vx = (dx / segmentLength) * speed;
+          ai.vy = (dy / segmentLength) * speed;
+          
+          ai.x += ai.vx * deltaSeconds;
+          ai.y += ai.vy * deltaSeconds;
+          
+          // Update progress
+          const stepSize = speed * deltaSeconds / segmentLength;
+          ai.pathProgress += stepSize;
+        }
       }
-    }
-    
-    aiStatusDisplay.textContent = aiShip.status;
+    });
   }
   
   // Animation loop
@@ -607,8 +606,8 @@
       player.x += player.vx * deltaSeconds;
       player.y += player.vy * deltaSeconds;
       
-      // Update AI ship
-      updateAIShip(deltaSeconds);
+      // Update AI ships
+      updateAIShips(deltaSeconds);
       
       // Update planets
       planets.forEach(planet => {
@@ -658,12 +657,18 @@
       
       // Store moving object positions
       storePosition('player', player.x, player.y, player.vx, player.vy);
-      storePosition('ai', aiShip.x, aiShip.y, aiShip.vx, aiShip.vy);
+      
+      // Store AI ship positions
+      aiShips.forEach((ai, i) => {
+        storePosition(`ai${i}`, ai.x, ai.y, ai.vx, ai.vy);
+      });
       
       // Emit light waves
       if (showLightWaves && simTime - lastWaveTime >= waveInterval) {
-        // Emit from AI ship only
-        lightWaves.push({ x: aiShip.x, y: aiShip.y, time: simTime, source: 'ai' });
+        // Emit from all AI ships
+        aiShips.forEach((ai, i) => {
+          lightWaves.push({ x: ai.x, y: ai.y, time: simTime, source: `ai${i}`, color: ai.color });
+        });
         
         lastWaveTime = simTime;
       }
@@ -685,15 +690,16 @@
       cameraX = player.x;
       cameraY = player.y;
     } else if (cameraMode === 'ai') {
-      cameraX = aiShip.x;
-      cameraY = aiShip.y;
+      // Follow the first AI ship
+      cameraX = aiShips[0].x;
+      cameraY = aiShips[0].y;
     }
     
     // Adjust zoom when autopilot is active
-    if (autopilotActive) {
-      // Calculate desired zoom to frame both player and AI
-      const dx = Math.abs(aiShip.x - player.x);
-      const dy = Math.abs(aiShip.y - player.y);
+    if (autopilotActive && autopilotTarget && autopilotTarget.ai) {
+      // Calculate desired zoom to frame both player and target AI
+      const dx = Math.abs(autopilotTarget.ai.x - player.x);
+      const dy = Math.abs(autopilotTarget.ai.y - player.y);
       const maxDist = Math.max(dx, dy);
       
       // Target zoom that fits the distance with some padding
@@ -773,8 +779,8 @@
         const fadeAlpha = Math.max(0, 1 - age / 3600) * 0.5; // Fade over 1 hour instead of 20 seconds
         ctx.globalAlpha = fadeAlpha;
         
-        // AI ship waves are cyan
-        ctx.strokeStyle = '#0f9';
+        // Use the AI ship's color if available
+        ctx.strokeStyle = wave.color || '#0f9';
         
         ctx.beginPath();
         ctx.arc(center.x, center.y, radius, 0, 2 * Math.PI);
@@ -987,96 +993,91 @@
     if (showTrails) {
       ctx.globalAlpha = 0.3;
       
-      // AI trail only
-      const aiHistory = positionHistories.get('ai');
-      if (aiHistory.length > 1) {
-        ctx.strokeStyle = '#00ff99';
-        ctx.beginPath();
-        const start = worldToScreen(aiHistory[0].x, aiHistory[0].y);
-        ctx.moveTo(start.x, start.y);
-        for (let i = 1; i < aiHistory.length; i++) {
-          const point = worldToScreen(aiHistory[i].x, aiHistory[i].y);
-          ctx.lineTo(point.x, point.y);
+      // Draw trails for all AI ships
+      aiShips.forEach((ai, idx) => {
+        const aiHistory = positionHistories.get(`ai${idx}`);
+        if (aiHistory.length > 1) {
+          ctx.strokeStyle = ai.color;
+          ctx.beginPath();
+          const start = worldToScreen(aiHistory[0].x, aiHistory[0].y);
+          ctx.moveTo(start.x, start.y);
+          for (let i = 1; i < aiHistory.length; i++) {
+            const point = worldToScreen(aiHistory[i].x, aiHistory[i].y);
+            ctx.lineTo(point.x, point.y);
+          }
+          ctx.stroke();
         }
-        ctx.stroke();
-      }
+      });
       
       ctx.globalAlpha = 1.0;
     }
     
-    // Draw AI ship - handle multiple images from FTL travel
-    const aiPositions = findAllVisiblePositions(positionHistories.get('ai'), player.x, player.y, true);
-    aiPositions.forEach((aiPos, index) => {
-      const screen = worldToScreen(aiPos.x, aiPos.y);
-      
-      // Calculate Doppler shift for AI ship
-      const dx = player.x - aiPos.x;
-      const dy = player.y - aiPos.y;
-      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      const dirX = dx / dist;
-      const dirY = dy / dist;
-      
-      const aiVelTowardPlayer = (aiPos.vx || 0) * dirX + (aiPos.vy || 0) * dirY;
-      const playerVelTowardAI = -player.vx * dirX - player.vy * dirY;
-      const relativeVelocity = aiVelTowardPlayer + playerVelTowardAI;
-      
-      // Fade older images
-      const alpha = Math.max(0.3, 1 - index * 0.3);
-      ctx.globalAlpha = alpha;
-      
-      ctx.fillStyle = getDopplerColor(relativeVelocity);
-      ctx.beginPath();
-      ctx.moveTo(screen.x, screen.y - 8);
-      ctx.lineTo(screen.x + 6, screen.y + 5);
-      ctx.lineTo(screen.x - 6, screen.y + 5);
-      ctx.closePath();
-      ctx.fill();
-      
-      // Show time delay if enabled
-      if (showLagTime) {
-        ctx.save(); // Save context state
-        ctx.fillStyle = '#ccc';
-        ctx.font = '10px sans-serif';
+    // Draw all AI ships - handle multiple images from FTL travel
+    aiShips.forEach((ai, idx) => {
+      const aiPositions = findAllVisiblePositions(positionHistories.get(`ai${idx}`), player.x, player.y, true);
+      aiPositions.forEach((aiPos, index) => {
+        const screen = worldToScreen(aiPos.x, aiPos.y);
+        
+        // Calculate Doppler shift for AI ship
+        const dx = player.x - aiPos.x;
+        const dy = player.y - aiPos.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const dirX = dx / dist;
+        const dirY = dy / dist;
+        
+        const aiVelTowardPlayer = (aiPos.vx || 0) * dirX + (aiPos.vy || 0) * dirY;
+        const playerVelTowardAI = -player.vx * dirX - player.vy * dirY;
+        const relativeVelocity = aiVelTowardPlayer + playerVelTowardAI;
+        
+        // Fade older images
+        const alpha = Math.max(0.3, 1 - index * 0.3);
+        ctx.globalAlpha = alpha;
+        
+        // Apply Doppler shift to the AI's base color
+        const baseColor = ai.color;
+        ctx.fillStyle = getDopplerColor(relativeVelocity);
+        
+        // Draw the AI's symbol
+        ctx.save();
+        ctx.font = 'bold 16px sans-serif';
         ctx.textAlign = 'center';
-        const delayText = aiPos.timeSinceEmission < 1 ? 
-          `-${(aiPos.timeSinceEmission * 1000).toFixed(0)}ms` : 
-          `-${aiPos.timeSinceEmission.toFixed(1)}s`;
-        ctx.fillText(delayText, screen.x, screen.y - 12);
-        ctx.restore(); // Restore context state to prevent fillStyle from affecting other draws
-      }
+        ctx.textBaseline = 'middle';
+        ctx.fillText(ai.symbol, screen.x, screen.y);
+        ctx.restore();
+        
+        // Show time delay if enabled
+        if (showLagTime) {
+          ctx.save(); // Save context state
+          ctx.fillStyle = '#ccc';
+          ctx.font = '10px sans-serif';
+          ctx.textAlign = 'center';
+          const delayText = aiPos.timeSinceEmission < 1 ? 
+            `-${(aiPos.timeSinceEmission * 1000).toFixed(0)}ms` : 
+            `-${aiPos.timeSinceEmission.toFixed(1)}s`;
+          ctx.fillText(delayText, screen.x, screen.y - 12);
+          ctx.restore(); // Restore context state to prevent fillStyle from affecting other draws
+        }
+        
+        ctx.globalAlpha = 1.0;
+        visibleCount++;
+      });
       
-      // Debug: Show the light cone radius that matched
-      if (showLightWaves && index === 0) { // Only show for newest image
-        const lightRadius = aiPos.timeSinceEmission * c_au_per_sec * zoom;
-        const emissionScreen = worldToScreen(aiPos.x, aiPos.y);
-        ctx.strokeStyle = '#f0f';
-        ctx.globalAlpha = 0.3;
-        ctx.setLineDash([2, 2]);
-        ctx.beginPath();
-        ctx.arc(emissionScreen.x, emissionScreen.y, lightRadius, 0, 2 * Math.PI);
-        ctx.stroke();
-        ctx.setLineDash([]);
+      // Draw actual AI position if enabled
+      if (showActual) {
+        const actualScreen = worldToScreen(ai.x, ai.y);
+        
+        // Draw actual position outline
+        ctx.save();
+        ctx.strokeStyle = ai.color;
+        ctx.lineWidth = 2;
+        ctx.font = 'bold 16px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.strokeText(ai.symbol, actualScreen.x, actualScreen.y);
+        ctx.lineWidth = 1;
+        ctx.restore();
       }
-      
-      ctx.globalAlpha = 1.0;
-      visibleCount++;
     });
-    
-    // Draw actual AI position if enabled
-    if (showActual) {
-      const actualScreen = worldToScreen(aiShip.x, aiShip.y);
-      
-      // Draw actual position outline
-      ctx.strokeStyle = '#0f9';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(actualScreen.x, actualScreen.y - 8);
-      ctx.lineTo(actualScreen.x + 6, actualScreen.y + 5);
-      ctx.lineTo(actualScreen.x - 6, actualScreen.y + 5);
-      ctx.closePath();
-      ctx.stroke();
-      ctx.lineWidth = 1;
-    }
     
     // Draw player
     const playerScreen = worldToScreen(player.x, player.y);
@@ -1101,12 +1102,6 @@
     const distToEarth = Math.sqrt(Math.pow(player.x - earthX, 2) + Math.pow(player.y - earthY, 2));
     const lagMinutes = (distToEarth / c_au_per_sec / 60).toFixed(1);
     earthLagDisplay.textContent = lagMinutes;
-    
-    // Calculate light-lag to AI ship
-    const distToAI = Math.sqrt(Math.pow(player.x - aiShip.x, 2) + Math.pow(player.y - aiShip.y, 2));
-    const aiLagSeconds = (distToAI / c_au_per_sec).toFixed(0);
-    const aiSpeed = Math.sqrt(aiShip.vx * aiShip.vx + aiShip.vy * aiShip.vy);
-    aiLagDisplay.textContent = `${aiLagSeconds} (AI: ${(aiSpeed / c_au_per_realsec).toFixed(1)}c)`;
     
     visibleCountDisplay.textContent = visibleCount;
     
