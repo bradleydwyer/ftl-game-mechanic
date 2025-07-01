@@ -715,7 +715,7 @@
     }
     
     // Find visible positions based on light cones
-    const tolerance = 0.05; // AU tolerance for light cone matching (increased to prevent flickering)
+    const tolerance = 0.001; // AU tolerance for light cone matching (0.001 AU = ~0.5 seconds of light travel)
     const toleranceSq = tolerance * tolerance;
     let visibleCount = 0;
     
