@@ -362,73 +362,72 @@
     
     // Find visible star positions based on light cones
     let visibleCount = 0;
-    const tolerance = 10; // Large tolerance to ensure all stars remain visible
-    const toleranceSq = tolerance * tolerance; // Square for faster comparisons
+    const tolerance = 20; // Very large tolerance to ensure stable star visibility
     
     stars.forEach(star => {
       const history = starHistories.get(star.id);
       if (history.length === 0) return;
       
       let bestMatch = null;
-      let bestDiff = Infinity;
       
-      // Find the best matching position with interpolation
-      for (let i = 0; i < history.length - 1; i++) {
-        const pos1 = history[i];
-        const pos2 = history[i + 1];
+      // Simple approach: for each position, check if light travel time matches distance
+      for (let i = history.length - 1; i >= 0; i--) {
+        const pos = history[i];
+        const timeSinceEmission = simTime - pos.time;
+        if (timeSinceEmission < 0) continue;
         
-        // Check multiple points between pos1 and pos2
-        for (let t = 0; t <= 1; t += 0.1) { // Back to 10 checks for smoother rendering
-          const interpTime = pos1.time + t * (pos2.time - pos1.time);
-          const timeSinceEmission = simTime - interpTime;
+        const lightDistance = timeSinceEmission * c_px_per_sec;
+        const dx = player.x - pos.x;
+        const dy = player.y - pos.y;
+        const actualDistance = Math.sqrt(dx * dx + dy * dy);
+        
+        const diff = Math.abs(actualDistance - lightDistance);
+        
+        // Accept first match within tolerance
+        if (diff < tolerance) {
+          bestMatch = {
+            x: pos.x,
+            y: pos.y,
+            vx: pos.vx,
+            vy: pos.vy,
+            time: pos.time,
+            timeSinceEmission: timeSinceEmission
+          };
+          break;
+        }
+      }
+      
+      // Always try to show the star - find best match even outside tolerance
+      if (!bestMatch && history.length > 0) {
+        // Find the position with smallest difference, regardless of tolerance
+        bestDiff = Infinity;
+        for (let i = 0; i < history.length - 1; i++) {
+          const pos = history[i];
+          const timeSinceEmission = simTime - pos.time;
           if (timeSinceEmission < 0) continue;
           
           const lightDistance = timeSinceEmission * c_px_per_sec;
+          const dx = player.x - pos.x;
+          const dy = player.y - pos.y;
+          const actualDistance = Math.sqrt(dx * dx + dy * dy);
+          const diff = Math.abs(actualDistance - lightDistance);
           
-          // Interpolate position
-          const interpX = pos1.x + t * (pos2.x - pos1.x);
-          const interpY = pos1.y + t * (pos2.y - pos1.y);
-          const interpVx = pos1.vx + t * (pos2.vx - pos1.vx);
-          const interpVy = pos1.vy + t * (pos2.vy - pos1.vy);
-          
-          const dx = player.x - interpX;
-          const dy = player.y - interpY;
-          const actualDistanceSq = dx * dx + dy * dy;
-          const lightDistanceSq = lightDistance * lightDistance;
-          
-          const diffSq = Math.abs(actualDistanceSq - lightDistanceSq);
-          
-          if (diffSq < bestDiff && diffSq < toleranceSq) {
-            bestDiff = diffSq;
-            const actualDistance = Math.sqrt(actualDistanceSq);
+          if (diff < bestDiff) {
+            bestDiff = diff;
             bestMatch = {
-              x: interpX,
-              y: interpY,
-              vx: interpVx,
-              vy: interpVy,
-              time: interpTime,
+              x: pos.x,
+              y: pos.y,
+              vx: pos.vx,
+              vy: pos.vy,
+              time: pos.time,
               timeSinceEmission: timeSinceEmission
             };
           }
         }
       }
       
-      // Always try to show the star - use best match or most recent position
-      if (!bestMatch && history.length > 0) {
-        // Use the most recent position as fallback
-        const recent = history[history.length - 1];
-        bestMatch = {
-          x: recent.x,
-          y: recent.y,
-          vx: recent.vx,
-          vy: recent.vy,
-          time: recent.time,
-          timeSinceEmission: simTime - recent.time
-        };
-      }
-      
       if (bestMatch) {
-        // Calculate relative velocity for Doppler shift (reuse dx/dy if possible)
+        // Calculate relative velocity for Doppler shift
         const dx = player.x - bestMatch.x;
         const dy = player.y - bestMatch.y;
         const dist = Math.sqrt(dx * dx + dy * dy) || 1;
