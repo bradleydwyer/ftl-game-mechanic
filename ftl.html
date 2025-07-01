@@ -20,8 +20,16 @@
   <div class="control-row">
     <label>Oscillation Amplitude: <input type="range" id="amplitudeSlider" min="0" max="150" step="5" value="50"></label>
     <span id="amplitudeLabel"></span>
-    <label>Ship Speed: <input type="range" id="speedSlider" min="0" max="5" step="0.1" value="1"></label>
-    <span id="speedLabel"></span>
+    <label>Ship Speed: <select id="speedSelect">
+      <option value="0.25">0.25c</option>
+      <option value="0.5">0.5c</option>
+      <option value="0.75">0.75c</option>
+      <option value="1" selected>1c</option>
+      <option value="1.5">1.5c</option>
+      <option value="2">2c</option>
+      <option value="4">4c</option>
+      <option value="8">8c</option>
+    </select></label>
     <label><input type="checkbox" id="horizontalToggle"> Horizontal Movement</label>
   </div>
   <div class="control-row">
@@ -38,7 +46,17 @@
         <option value="hideInArea">Hide inside probe area</option>
       </select>
     </label>
-    <label><input type="checkbox" id="ftlToggle"> FTL Mode (2x light speed)</label>
+    <label>Player Max Speed: <select id="playerSpeedSelect">
+      <option value="0.25">0.25c</option>
+      <option value="0.5">0.5c</option>
+      <option value="0.75">0.75c</option>
+      <option value="1" selected>1c</option>
+      <option value="1.5">1.5c</option>
+      <option value="2">2c</option>
+      <option value="4">4c</option>
+      <option value="8">8c</option>
+    </select></label>
+    <label><input type="checkbox" id="lightWavesToggle"> Show Light Waves</label>
   </div>
 </div>
 <canvas id="canvas" width="800" height="400"></canvas>
@@ -52,19 +70,17 @@
   const amplitudeSlider = document.getElementById('amplitudeSlider');
   const amplitudeLabel = document.getElementById('amplitudeLabel');
   const horizontalToggle = document.getElementById('horizontalToggle');
-  const speedSlider = document.getElementById('speedSlider');
-  const speedLabel = document.getElementById('speedLabel');
+  const speedSelect = document.getElementById('speedSelect');
   const probeMoveToggle = document.getElementById('probeMoveToggle');
   const probeSpeedSlider = document.getElementById('probeSpeedSlider');
   const probeSpeedLabel = document.getElementById('probeSpeedLabel');
   const ghostModeSelect = document.getElementById('ghostModeSelect');
-  const ftlToggle = document.getElementById('ftlToggle');
+  const playerSpeedSelect = document.getElementById('playerSpeedSelect');
+  const lightWavesToggle = document.getElementById('lightWavesToggle');
   
   const c_px_per_sec = 60; // pixels per light-second
   const player = { x: 100, y: canvas.height/2, vx: 0, vy: 0 };
-  const playerAccel = 120; // pixels/sec^2 (0.5x light speed per second)
-  const playerMaxSpeed = c_px_per_sec; // pixels/sec (speed of light!)
-  const playerMaxSpeedFTL = c_px_per_sec * 2; // 2x light speed in FTL mode
+  const playerAccel = 240; // pixels/sec^2 (faster acceleration for higher speeds)
   const playerFriction = 0.95; // velocity decay
   const keysPressed = {};
   let probeActive = false;
@@ -76,8 +92,11 @@
   const positionHistory = [];
   const maxHistoryDuration = 30; // seconds of history to keep
   
-  // FTL mode for testing
-  let ftlMode = false;
+  // Light wave visualization
+  const lightWaves = [];
+  let lastWaveTime = 0;
+  const waveInterval = 1; // seconds between waves
+  let showLightWaves = false;
   
   // Calculate Doppler shift color based on relative velocity
   function getDopplerColor(relativeVelocity) {
@@ -115,7 +134,7 @@
       const settings = JSON.parse(saved);
       slider.value = settings.distance ?? 5;
       amplitudeSlider.value = settings.amplitude ?? settings.vertical ?? 50; // Support old 'vertical' key
-      speedSlider.value = settings.speed ?? 1;
+      speedSelect.value = settings.speed ?? 1;
       probeSpeedSlider.value = settings.probeSpeed ?? 0.5;
       probeToggle.checked = settings.probeActive ?? false;
       probeMoveToggle.checked = settings.probeMove ?? false;
@@ -127,10 +146,11 @@
       } else {
         ghostModeSelect.value = 'always';
       }
-      ftlToggle.checked = settings.ftlMode ?? false;
+      playerSpeedSelect.value = settings.playerMaxSpeed ?? 1;
       horizontalToggle.checked = settings.horizontal ?? false;
+      lightWavesToggle.checked = settings.showLightWaves ?? false;
       probeActive = probeToggle.checked;
-      ftlMode = ftlToggle.checked;
+      showLightWaves = lightWavesToggle.checked;
       
       // If probe was active, restore its position
       if (probeActive && settings.probePosition) {
@@ -145,13 +165,14 @@
     const settings = {
       distance: parseFloat(slider.value),
       amplitude: parseFloat(amplitudeSlider.value),
-      speed: parseFloat(speedSlider.value),
+      speed: parseFloat(speedSelect.value),
       probeSpeed: parseFloat(probeSpeedSlider.value),
       probeActive: probeToggle.checked,
       probeMove: probeMoveToggle.checked,
       ghostMode: ghostModeSelect.value,
-      ftlMode: ftlToggle.checked,
+      playerMaxSpeed: parseFloat(playerSpeedSelect.value),
       horizontal: horizontalToggle.checked,
+      showLightWaves: lightWavesToggle.checked,
       probePosition: probePosition,
       probePhase: probePhase
     };
@@ -161,7 +182,6 @@
     const dist = parseFloat(slider.value);
     distLabel.textContent = dist.toFixed(1) + " light-sec";
     amplitudeLabel.textContent = amplitudeSlider.value + " px";
-    speedLabel.textContent = speedSlider.value + "x";
     probeSpeedLabel.textContent = probeSpeedSlider.value + "x";
     // Update remote ship base position when distance changes
     remoteShipBaseX = player.x + dist * c_px_per_sec;
@@ -194,8 +214,9 @@
   // Add save listeners
   probeMoveToggle.addEventListener('change', saveSettings);
   ghostModeSelect.addEventListener('change', saveSettings);
-  ftlToggle.addEventListener('change', () => {
-    ftlMode = ftlToggle.checked;
+  playerSpeedSelect.addEventListener('change', saveSettings);
+  lightWavesToggle.addEventListener('change', () => {
+    showLightWaves = lightWavesToggle.checked;
     saveSettings();
   });
   
@@ -215,7 +236,7 @@
   });
   slider.addEventListener('input', updateLabels);
   amplitudeSlider.addEventListener('input', updateLabels);
-  speedSlider.addEventListener('input', updateLabels);
+  speedSelect.addEventListener('change', saveSettings);
   probeSpeedSlider.addEventListener('input', updateLabels);
   horizontalToggle.addEventListener('change', saveSettings);
   
@@ -263,12 +284,12 @@
     if (keysPressed['ArrowUp']) player.vy -= playerAccel * deltaSeconds;
     if (keysPressed['ArrowDown']) player.vy += playerAccel * deltaSeconds;
     
-    // Clamp to max speed (depends on FTL mode)
-    const currentMaxSpeed = ftlMode ? playerMaxSpeedFTL : playerMaxSpeed;
+    // Clamp to max speed (based on player speed setting)
+    const playerMaxSpeed = parseFloat(playerSpeedSelect.value) * c_px_per_sec;
     const speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
-    if (speed > currentMaxSpeed) {
-      player.vx = (player.vx / speed) * currentMaxSpeed;
-      player.vy = (player.vy / speed) * currentMaxSpeed;
+    if (speed > playerMaxSpeed) {
+      player.vx = (player.vx / speed) * playerMaxSpeed;
+      player.vy = (player.vy / speed) * playerMaxSpeed;
     }
     
     // Update position
@@ -285,31 +306,55 @@
     const distance_px = horizontal_distance_ls * c_px_per_sec;
     // Get animation parameters
     const amplitude = parseFloat(amplitudeSlider.value);
-    const shipSpeed = parseFloat(speedSlider.value);
+    const shipSpeed = parseFloat(speedSelect.value);
     const probeSpeed = parseFloat(probeSpeedSlider.value);
     const isHorizontal = horizontalToggle.checked;
     
     // Calculate remote ship's actual position
+    // Ship speed is now in multiples of c, so convert to frequency for oscillation
+    const oscillationFreq = shipSpeed * c_px_per_sec / (2 * Math.PI * amplitude); // Frequency to achieve desired max speed
     const remoteActualX = isHorizontal ? 
-      remoteShipBaseX + amplitude * Math.sin(simTime * shipSpeed * (2 * Math.PI / 4)) : 
+      remoteShipBaseX + amplitude * Math.sin(simTime * oscillationFreq * 2 * Math.PI) : 
       remoteShipBaseX;
     const remoteActualY = isHorizontal ? 
       canvas.height/2 : 
-      canvas.height/2 + amplitude * Math.sin(simTime * shipSpeed * (2 * Math.PI / 4));
+      canvas.height/2 + amplitude * Math.sin(simTime * oscillationFreq * 2 * Math.PI);
     
     // Store position in history with velocity
+    // Max velocity = amplitude * omega, where omega = 2*pi*freq
+    const omega = oscillationFreq * 2 * Math.PI;
     positionHistory.push({
       x: remoteActualX,
       y: remoteActualY,
       time: simTime,
-      vx: isHorizontal ? amplitude * shipSpeed * (2 * Math.PI / 4) * Math.cos(simTime * shipSpeed * (2 * Math.PI / 4)) : 0,
-      vy: isHorizontal ? 0 : amplitude * shipSpeed * (2 * Math.PI / 4) * Math.cos(simTime * shipSpeed * (2 * Math.PI / 4))
+      vx: isHorizontal ? amplitude * omega * Math.cos(simTime * omega) : 0,
+      vy: isHorizontal ? 0 : amplitude * omega * Math.cos(simTime * omega)
     });
     
     // Clean old history
     while (positionHistory.length > 0 && positionHistory[0].time < simTime - maxHistoryDuration) {
       positionHistory.shift();
     }
+    
+    // Emit light waves if enabled
+    if (showLightWaves && simTime - lastWaveTime >= waveInterval) {
+      lightWaves.push({
+        x: remoteActualX,
+        y: remoteActualY,
+        time: simTime
+      });
+      lastWaveTime = simTime;
+    }
+    
+    // Clean old light waves (remove if they've expanded beyond the canvas)
+    const maxRadius = Math.sqrt(canvas.width * canvas.width + canvas.height * canvas.height) + 100;
+    lightWaves.forEach((wave, index) => {
+      const age = simTime - wave.time;
+      const radius = age * c_px_per_sec;
+      if (radius > maxRadius) {
+        lightWaves.splice(index, 1);
+      }
+    });
     
     // Calculate true 2D distance for light-lag
     const actual2DDistance = Math.sqrt(
@@ -424,6 +469,28 @@
     ctx.arc(remoteActualX, remoteActualY, 6, 0, 2 * Math.PI);
     ctx.stroke();
     
+    // Draw light waves if enabled
+    if (showLightWaves) {
+      ctx.strokeStyle = '#666';
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.5;
+      
+      lightWaves.forEach(wave => {
+        const age = simTime - wave.time;
+        const radius = age * c_px_per_sec;
+        
+        // Fade out as the wave expands
+        const fadeAlpha = Math.max(0, 1 - age / 40) * 0.5;
+        ctx.globalAlpha = fadeAlpha;
+        
+        ctx.beginPath();
+        ctx.arc(wave.x, wave.y, radius, 0, 2 * Math.PI);
+        ctx.stroke();
+      });
+      
+      ctx.globalAlpha = 1.0;
+    }
+    
     // Draw all visible positions (light-based views)
     const inProbeRange = probeActive && probePosition && delay === 0;
     
@@ -527,16 +594,10 @@
     
     // Debug: Show visible positions count
     ctx.fillText('Visible positions: ' + visiblePositions.length, 10, 345);
-    if (ftlMode) {
-      ctx.fillStyle = '#ff9900';
-      ctx.fillText('FTL MODE ACTIVE', 10, 330);
-      ctx.fillStyle = '#aaa';
-    }
     
     // Display player speed
     const playerSpeed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
-    const maxSpeed = ftlMode ? playerMaxSpeedFTL : playerMaxSpeed;
-    const speedPercent = (playerSpeed / maxSpeed * 100).toFixed(0);
+    const speedPercent = (playerSpeed / playerMaxSpeed * 100).toFixed(0);
     const speedInC = (playerSpeed / c_px_per_sec).toFixed(2);
     ctx.fillText('Player Speed: ' + speedInC + 'c (' + speedPercent + '% of max)', 10, 375);
     
