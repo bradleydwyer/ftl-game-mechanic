@@ -50,7 +50,7 @@
   // Constants - Toy Scale for Visual Appeal
   const c_px_per_sec = 200; // pixels per light-second
   const galacticCenter = { x: 0, y: 0 }; // Will be set to canvas center
-  const numStars = 5000;
+  const numStars = 2000; // Reduced for better performance
   const galaxyRadius = 300; // pixels
   const spiralTurns = 3; // number of spiral arms
   const historyDuration = 20; // seconds of position history to keep (balanced for performance)
@@ -285,18 +285,15 @@
       const vx = -tangentialSpeed * Math.sin(star.angle);
       const vy = tangentialSpeed * Math.cos(star.angle);
       
-      // Store in history (reduced frequency for performance)
+      // Store in history
       const history = starHistories.get(star.id);
-      // Only store every 3rd frame for distant stars
-      if (star.id % 3 === Math.floor(simTime * 60) % 3 || star.radius < 100) {
-        history.push({
-          x: actualX,
-          y: actualY,
-          vx: vx,
-          vy: vy,
-          time: simTime
-        });
-      }
+      history.push({
+        x: actualX,
+        y: actualY,
+        vx: vx,
+        vy: vy,
+        time: simTime
+      });
       
       // Clean old history
       while (history.length > 0 && history[0].time < simTime - historyDuration) {
@@ -305,7 +302,7 @@
       
       // Emit light waves if enabled
       if (showLightWaves && simTime - lastWaveTime >= waveInterval && star.id % 250 === 0) {
-        // Only emit from every 250th star to avoid too many waves
+        // Only emit from every 100th star to avoid too many waves
         lightWaves.push({
           x: actualX,
           y: actualY,
@@ -365,7 +362,7 @@
     
     // Find visible star positions based on light cones
     let visibleCount = 0;
-    const tolerance = 3; // Reduced tolerance for more precision
+    const tolerance = 5; // Increased tolerance to prevent stars from disappearing
     const toleranceSq = tolerance * tolerance; // Square for faster comparisons
     const maxLightDistance = 20 * c_px_per_sec; // Max distance light could travel in history duration
     
@@ -386,8 +383,8 @@
         const pos1 = history[i];
         const pos2 = history[i + 1];
         
-        // Check fewer points between pos1 and pos2 for better performance
-        for (let t = 0; t <= 1; t += 0.2) { // Reduced from 10 to 5 checks
+        // Check multiple points between pos1 and pos2
+        for (let t = 0; t <= 1; t += 0.1) { // Back to 10 checks for smoother rendering
           const interpTime = pos1.time + t * (pos2.time - pos1.time);
           const timeSinceEmission = simTime - interpTime;
           if (timeSinceEmission < 0) continue;

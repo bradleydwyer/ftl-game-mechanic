@@ -55,7 +55,7 @@
   const c_px_per_realsec = c_px_per_sec * timeScale; // ~12 px/s
   
   const galacticCenter = { x: 0, y: 0 }; // Will be set to canvas center
-  const numStars = 5000;
+  const numStars = 2000; // Reduced for better performance
   const galaxyRadius = 300; // pixels = 25,000 ly (keep it visible on screen)
   const spiralTurns = 3; // number of spiral arms
   const historyDuration = 1200; // real seconds of position history (1.2 million years) - balanced for performance
@@ -316,7 +316,7 @@
     
     // Find visible star positions based on light cones
     let visibleCount = 0;
-    const tolerance = 5; // Reduced tolerance for more precise light cone matching
+    const tolerance = 10; // Balanced tolerance to prevent stars from disappearing
     const toleranceSq = tolerance * tolerance; // Square for faster comparisons
     const maxLightDistance = historyDuration * c_px_per_realsec; // Max distance light could travel
     
@@ -338,8 +338,8 @@
         const pos1 = history[i];
         const pos2 = history[i + 1];
         
-        // Check fewer points between pos1 and pos2 for better performance
-        for (let t = 0; t <= 1; t += 0.2) { // Reduced from 10 to 5 checks
+        // Check multiple points between pos1 and pos2
+        for (let t = 0; t <= 1; t += 0.1) { // 10 checks for smoother rendering
           const interpTime = pos1.time + t * (pos2.time - pos1.time);
           const timeSinceEmission = simTime - interpTime;
           if (timeSinceEmission < 0) continue;
