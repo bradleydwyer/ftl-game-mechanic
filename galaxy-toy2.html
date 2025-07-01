@@ -749,10 +749,10 @@
           getDopplerColor(relativeVelocity) : 
           star.color || getDopplerColor(relativeVelocity);
         ctx.fillStyle = baseColor;
-        // Enhance brightness in high-density regions
-        const currentDensity = getDensityAt(star.radius, star.angle);
-        const brightnessBoost = densityWavesEnabled ? (currentDensity - 0.4) * 0.5 : 0;
-        ctx.globalAlpha = Math.min(1, star.brightness + brightnessBoost) * Math.max(0.3, 1 - bestMatch.timeSinceEmission / 10);
+        // Enhance brightness in high-density regions to show structure
+        const currentDensity = densityWavesEnabled ? getDensityAt(star.radius, star.angle) : 0.5;
+        const brightnessMultiplier = 0.3 + currentDensity * 1.4; // 0.3 to 1.7x brightness
+        ctx.globalAlpha = Math.min(1, star.brightness * brightnessMultiplier) * Math.max(0.3, 1 - bestMatch.timeSinceEmission / 10);
         ctx.beginPath();
         ctx.arc(bestMatch.x, bestMatch.y, star.size, 0, 2 * Math.PI);
         ctx.fill();
