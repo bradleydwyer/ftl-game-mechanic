@@ -79,6 +79,35 @@
   // FTL mode for testing
   let ftlMode = false;
   
+  // Calculate Doppler shift color based on relative velocity
+  function getDopplerColor(relativeVelocity) {
+    // Positive = approaching (blue shift), negative = receding (red shift)
+    // Normalize to light speed
+    const velocityFraction = relativeVelocity / c_px_per_sec;
+    
+    // Clamp to reasonable range (-1 to 1)
+    const shift = Math.max(-1, Math.min(1, velocityFraction));
+    
+    if (shift > 0) {
+      // Blue shift (approaching)
+      const intensity = shift * 0.8; // Max 80% shift
+      const r = Math.round(255 * (1 - intensity));
+      const g = Math.round(255 * (1 - intensity * 0.5));
+      const b = 255;
+      return `rgb(${r}, ${g}, ${b})`;
+    } else if (shift < 0) {
+      // Red shift (receding)
+      const intensity = -shift * 0.8; // Max 80% shift
+      const r = 255;
+      const g = Math.round(255 * (1 - intensity * 0.5));
+      const b = Math.round(255 * (1 - intensity));
+      return `rgb(${r}, ${g}, ${b})`;
+    } else {
+      // No shift (white)
+      return '#ffffff';
+    }
+  }
+  
   // Load saved values from localStorage
   function loadSettings() {
     const saved = localStorage.getItem('ftlDemoSettings');
@@ -268,11 +297,13 @@
       canvas.height/2 : 
       canvas.height/2 + amplitude * Math.sin(simTime * shipSpeed * (2 * Math.PI / 4));
     
-    // Store position in history
+    // Store position in history with velocity
     positionHistory.push({
       x: remoteActualX,
       y: remoteActualY,
-      time: simTime
+      time: simTime,
+      vx: isHorizontal ? amplitude * shipSpeed * (2 * Math.PI / 4) * Math.cos(simTime * shipSpeed * (2 * Math.PI / 4)) : 0,
+      vy: isHorizontal ? 0 : amplitude * shipSpeed * (2 * Math.PI / 4) * Math.cos(simTime * shipSpeed * (2 * Math.PI / 4))
     });
     
     // Clean old history
@@ -311,11 +342,24 @@
       
       // Check if we're on the light cone surface (with tolerance)
       if (Math.abs(actualDistance - lightDistance) < tolerance) {
+        // Calculate relative velocity (dot product of velocities with direction vector)
+        const dx = player.x - pos.x;
+        const dy = player.y - pos.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const dirX = dx / dist;
+        const dirY = dy / dist;
+        
+        // Relative velocity components
+        const shipVelTowardPlayer = (pos.vx || 0) * dirX + (pos.vy || 0) * dirY;
+        const playerVelTowardShip = -player.vx * dirX - player.vy * dirY;
+        const relativeVelocity = shipVelTowardPlayer + playerVelTowardShip;
+        
         visiblePositions.push({
           x: pos.x,
           y: pos.y,
           time: pos.time,
-          age: timeSinceEmission
+          age: timeSinceEmission,
+          relativeVelocity: relativeVelocity
         });
       }
     }
@@ -336,12 +380,25 @@
         
         if (diff < closestDiff) {
           closestDiff = diff;
+          
+          // Calculate relative velocity for closest position
+          const dx = player.x - pos.x;
+          const dy = player.y - pos.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const dirX = dx / dist;
+          const dirY = dy / dist;
+          
+          const shipVelTowardPlayer = (pos.vx || 0) * dirX + (pos.vy || 0) * dirY;
+          const playerVelTowardShip = -player.vx * dirX - player.vy * dirY;
+          const relativeVelocity = shipVelTowardPlayer + playerVelTowardShip;
+          
           closestPos = {
             x: pos.x,
             y: pos.y,
             time: pos.time,
             age: timeSinceEmission,
-            diff: diff
+            diff: diff,
+            relativeVelocity: relativeVelocity
           };
         }
       }
@@ -389,7 +446,10 @@
       
       // Older images are more faded
       const alpha = Math.max(0.2, 0.8 - (pos.age / 10));
-      ctx.fillStyle = '#3399ff';
+      
+      // Apply Doppler shift color
+      const dopplerColor = getDopplerColor(pos.relativeVelocity || 0);
+      ctx.fillStyle = dopplerColor;
       ctx.globalAlpha = alpha;
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, 6, 0, 2 * Math.PI);
