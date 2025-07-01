@@ -58,7 +58,7 @@
   const numStars = 5000;
   const galaxyRadius = 300; // pixels = 25,000 ly (keep it visible on screen)
   const spiralTurns = 3; // number of spiral arms
-  const historyDuration = 1800; // real seconds of position history (1.8 million years) - increased for better coverage
+  const historyDuration = 1200; // real seconds of position history (1.2 million years) - balanced for performance
   
   // Player
   // To cross 100,000 ly (1200 px) in 60 seconds = 20 px/s
@@ -317,10 +317,17 @@
     // Find visible star positions based on light cones
     let visibleCount = 0;
     const tolerance = 5; // Reduced tolerance for more precise light cone matching
+    const toleranceSq = tolerance * tolerance; // Square for faster comparisons
+    const maxLightDistance = historyDuration * c_px_per_realsec; // Max distance light could travel
     
     stars.forEach(star => {
+      // Early exit for stars too far away to possibly be visible
       const history = starHistories.get(star.id);
-      let rendered = false;
+      if (history.length < 2) return;
+      
+      const current = history[history.length - 1];
+      const roughDist = Math.abs(current.x - player.x) + Math.abs(current.y - player.y);
+      if (roughDist > maxLightDistance + 100) return; // Skip if impossibly far
       
       // Find positions whose light reaches the player now with interpolation
       let bestMatch = null;
@@ -331,8 +338,8 @@
         const pos1 = history[i];
         const pos2 = history[i + 1];
         
-        // Check multiple points between pos1 and pos2
-        for (let t = 0; t <= 1; t += 0.1) {
+        // Check fewer points between pos1 and pos2 for better performance
+        for (let t = 0; t <= 1; t += 0.2) { // Reduced from 10 to 5 checks
           const interpTime = pos1.time + t * (pos2.time - pos1.time);
           const timeSinceEmission = simTime - interpTime;
           if (timeSinceEmission < 0) continue;
@@ -345,15 +352,16 @@
           const interpVx = pos1.vx + t * (pos2.vx - pos1.vx);
           const interpVy = pos1.vy + t * (pos2.vy - pos1.vy);
           
-          const actualDistance = Math.sqrt(
-            Math.pow(player.x - interpX, 2) + 
-            Math.pow(player.y - interpY, 2)
-          );
+          const dx = player.x - interpX;
+          const dy = player.y - interpY;
+          const actualDistanceSq = dx * dx + dy * dy;
+          const lightDistanceSq = lightDistance * lightDistance;
           
-          const diff = Math.abs(actualDistance - lightDistance);
+          const diffSq = Math.abs(actualDistanceSq - lightDistanceSq);
           
-          if (diff < bestDiff && diff < tolerance) {
-            bestDiff = diff;
+          if (diffSq < bestDiff && diffSq < toleranceSq) {
+            bestDiff = diffSq;
+            const actualDistance = Math.sqrt(actualDistanceSq);
             bestMatch = {
               x: interpX,
               y: interpY,
