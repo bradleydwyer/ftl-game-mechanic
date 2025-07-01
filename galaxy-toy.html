@@ -362,18 +362,12 @@
     
     // Find visible star positions based on light cones
     let visibleCount = 0;
-    const tolerance = 5; // Increased tolerance to prevent stars from disappearing
+    const tolerance = 10; // Large tolerance to ensure all stars remain visible
     const toleranceSq = tolerance * tolerance; // Square for faster comparisons
-    const maxLightDistance = 20 * c_px_per_sec; // Max distance light could travel in history duration
     
     stars.forEach(star => {
-      // Early exit for stars too far away to possibly be visible
       const history = starHistories.get(star.id);
-      if (history.length < 2) return;
-      
-      const current = history[history.length - 1];
-      const roughDist = Math.abs(current.x - player.x) + Math.abs(current.y - player.y);
-      if (roughDist > maxLightDistance + 100) return; // Skip if impossibly far
+      if (history.length === 0) return;
       
       let bestMatch = null;
       let bestDiff = Infinity;
@@ -417,6 +411,20 @@
             };
           }
         }
+      }
+      
+      // Always try to show the star - use best match or most recent position
+      if (!bestMatch && history.length > 0) {
+        // Use the most recent position as fallback
+        const recent = history[history.length - 1];
+        bestMatch = {
+          x: recent.x,
+          y: recent.y,
+          vx: recent.vx,
+          vy: recent.vy,
+          time: recent.time,
+          timeSinceEmission: simTime - recent.time
+        };
       }
       
       if (bestMatch) {
