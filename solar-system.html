@@ -715,13 +715,14 @@
     }
     
     // Find visible positions based on light cones
-    const tolerance = 0.001; // AU tolerance for light cone matching (0.001 AU = ~0.5 seconds of light travel)
-    const toleranceSq = tolerance * tolerance;
     let visibleCount = 0;
     
     // Helper function to find ALL visible positions (for FTL multiple images)
-    const findAllVisiblePositions = (history, observerX, observerY) => {
+    const findAllVisiblePositions = (history, observerX, observerY, isHighSpeed = true) => {
       if (!history || history.length === 0) return [];
+      
+      // Use tighter tolerance for high-speed objects, looser for slow objects to prevent flicker
+      const tolerance = isHighSpeed ? 0.001 : 0.01; // 0.001 AU = ~0.5s, 0.01 AU = ~5s
       
       const visiblePositions = [];
       
@@ -824,8 +825,8 @@
     };
     
     // Helper function to find single visible position (for objects that don't move FTL)
-    const findVisiblePosition = (history, observerX, observerY) => {
-      const positions = findAllVisiblePositions(history, observerX, observerY);
+    const findVisiblePosition = (history, observerX, observerY, isHighSpeed = false) => {
+      const positions = findAllVisiblePositions(history, observerX, observerY, isHighSpeed);
       
       // If no position found and we're early in simulation, check if object is close enough to be visible
       if (positions.length === 0 && simTime < 10 && history.length > 0) {
@@ -934,7 +935,7 @@
     }
     
     // Draw AI ship - handle multiple images from FTL travel
-    const aiPositions = findAllVisiblePositions(positionHistories.get('ai'), player.x, player.y);
+    const aiPositions = findAllVisiblePositions(positionHistories.get('ai'), player.x, player.y, true);
     aiPositions.forEach((aiPos, index) => {
       const screen = worldToScreen(aiPos.x, aiPos.y);
       
