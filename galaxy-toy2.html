@@ -628,8 +628,8 @@
       ctx.restore();
     }
     
-    // Draw galactic center and bar structure
-    if (densityWavesEnabled) {
+    // Draw galactic center and bar structure (only if showing density)
+    if (densityWavesEnabled && showDensity) {
       // Draw the bar
       ctx.save();
       ctx.translate(galacticCenter.x, galacticCenter.y);
