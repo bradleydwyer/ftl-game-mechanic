@@ -104,21 +104,32 @@
     // Normalize to light speed
     const velocityFraction = relativeVelocity / c_px_per_sec;
     
-    // Clamp to reasonable range (-1 to 1)
-    const shift = Math.max(-1, Math.min(1, velocityFraction));
+    // With max speeds of 8c each, relative velocity can range from -16c to +16c
+    // Use logarithmic scaling for better visual range
+    const maxRelativeSpeed = 16; // Maximum possible relative velocity in units of c
+    let shift = velocityFraction / maxRelativeSpeed;
+    
+    // Apply logarithmic scaling to compress extreme values
+    if (Math.abs(shift) > 0.1) {
+      const sign = Math.sign(shift);
+      shift = sign * (0.1 + 0.9 * Math.log10(1 + 9 * Math.abs(shift)));
+    }
+    
+    // Clamp to -1 to 1 range
+    shift = Math.max(-1, Math.min(1, shift));
     
     if (shift > 0) {
       // Blue shift (approaching)
-      const intensity = shift * 0.8; // Max 80% shift
+      const intensity = shift;
       const r = Math.round(255 * (1 - intensity));
-      const g = Math.round(255 * (1 - intensity * 0.5));
+      const g = Math.round(255 * (1 - intensity * 0.7));
       const b = 255;
       return `rgb(${r}, ${g}, ${b})`;
     } else if (shift < 0) {
       // Red shift (receding)
-      const intensity = -shift * 0.8; // Max 80% shift
+      const intensity = -shift;
       const r = 255;
-      const g = Math.round(255 * (1 - intensity * 0.5));
+      const g = Math.round(255 * (1 - intensity * 0.7));
       const b = Math.round(255 * (1 - intensity));
       return `rgb(${r}, ${g}, ${b})`;
     } else {
@@ -296,9 +307,22 @@
     player.x += player.vx * deltaSeconds;
     player.y += player.vy * deltaSeconds;
     
-    // Keep player on screen
-    player.x = Math.max(20, Math.min(canvas.width - 20, player.x));
-    player.y = Math.max(20, Math.min(canvas.height - 20, player.y));
+    // Keep player on screen and zero velocity when hitting edges
+    if (player.x <= 20) {
+      player.x = 20;
+      player.vx = Math.max(0, player.vx); // Only allow positive (rightward) velocity
+    } else if (player.x >= canvas.width - 20) {
+      player.x = canvas.width - 20;
+      player.vx = Math.min(0, player.vx); // Only allow negative (leftward) velocity
+    }
+    
+    if (player.y <= 20) {
+      player.y = 20;
+      player.vy = Math.max(0, player.vy); // Only allow positive (downward) velocity
+    } else if (player.y >= canvas.height - 20) {
+      player.y = canvas.height - 20;
+      player.vy = Math.min(0, player.vy); // Only allow negative (upward) velocity
+    }
     
     lastPlayerX = player.x;
     // Compute lagged perception
