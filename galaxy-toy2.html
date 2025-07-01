@@ -37,7 +37,7 @@
   <label><input type="checkbox" id="showDensityToggle"> Show Density Field</label>
   <label><input type="checkbox" id="showStarsToggle" checked> Show Stars</label>
   <label><input type="checkbox" id="showArmsToggle" checked> Enable Density Waves</label>
-  <label><input type="checkbox" id="rotatePatternsToggle"> Rotate Density Patterns</label>
+  <label><input type="checkbox" id="rotatePatternsToggle" checked> Rotate Density Patterns</label>
   <label>Bar Strength: <input type="range" id="barStrengthSlider" min="0" max="1" step="0.1" value="0.8"></label>
   <span id="barStrengthLabel">0.8</span>
 </div>
@@ -108,7 +108,7 @@
   let showTrails = false;
   let showDensity = false;
   let showStars = true;
-  let rotatePatternsEnabled = false;
+  let rotatePatternsEnabled = true;
   
   // Resize canvas
   function resizeCanvas() {
@@ -250,10 +250,10 @@
       }
       
       // Add some inter-arm features (spurs and feathers)
-      const spurFreq = 8;
-      const spurAngle = angle * spurFreq + radius * 0.01;
-      const spurDensity = 0.3 * Math.max(0, Math.sin(spurAngle));
-      spiralDensity = Math.min(1, spiralDensity + spurDensity * 0.3);
+      const spurFreq = 12; // More spurs
+      const spurAngle = angle * spurFreq + radius * 0.02;
+      const spurDensity = 0.4 * Math.max(0, Math.sin(spurAngle));
+      spiralDensity = Math.min(1, spiralDensity + spurDensity * 0.2);
     }
     
     // Combine bar and spiral densities
