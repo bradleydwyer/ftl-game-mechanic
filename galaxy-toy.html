@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Galaxy Light-Lag Demo</title>
+<title>Galaxy Light-Lag Demo (Toy Scale)</title>
 <style>
   body { background: #000; color: #eee; font-family: sans-serif; margin: 0; overflow: hidden; }
   #info { position: absolute; top: 10px; left: 10px; font-size: 12px; }
@@ -20,15 +20,18 @@
 </div>
 <div id="controls">
   <label>Max Speed: <select id="playerSpeedSelect">
-    <option value="0.1">100c</option>
-    <option value="0.5">500c</option>
-    <option value="1" selected>1,000c</option>
-    <option value="2">2,000c</option>
-    <option value="5">5,000c</option>
-    <option value="10">10,000c</option>
+    <option value="0.25">0.25c</option>
+    <option value="0.5">0.5c</option>
+    <option value="0.75">0.75c</option>
+    <option value="1" selected>1c</option>
+    <option value="1.5">1.5c</option>
+    <option value="2">2c</option>
+    <option value="4">4c</option>
+    <option value="8">8c</option>
   </select></label>
   <label><input type="checkbox" id="showActualToggle"> Show Actual Positions</label>
   <label><input type="checkbox" id="showTrailsToggle"> Show Light Trails</label>
+  <label><input type="checkbox" id="showLightWavesToggle"> Show Light Waves</label>
 </div>
 <canvas id="canvas"></canvas>
 <script>
@@ -38,40 +41,35 @@
   const playerSpeedSelect = document.getElementById('playerSpeedSelect');
   const showActualToggle = document.getElementById('showActualToggle');
   const showTrailsToggle = document.getElementById('showTrailsToggle');
+  const showLightWavesToggle = document.getElementById('showLightWavesToggle');
   const speedDisplay = document.getElementById('speedDisplay');
   const posXDisplay = document.getElementById('posX');
   const posYDisplay = document.getElementById('posY');
   const visibleCountDisplay = document.getElementById('visibleCount');
   
-  // Constants - Galactic Scale
-  // Galaxy is 100,000 light-years across
-  // Canvas is ~600 pixels diameter = 100,000 ly diameter
-  // Scale: 1 pixel = 166.67 light-years
-  const lyPerPixel = 166.67; // light-years per pixel
-  const c_px_per_sec = 1 / lyPerPixel; // light travels 1 ly/year = 1/83.33 px/year
-  // But we need to speed up time for playability
-  // Let's say 1 real second = 1000 years of simulation time
-  const timeScale = 1000; // years per real second
-  const c_px_per_realsec = c_px_per_sec * timeScale; // ~12 px/s
-  
+  // Constants - Toy Scale for Visual Appeal
+  const c_px_per_sec = 200; // pixels per light-second
   const galacticCenter = { x: 0, y: 0 }; // Will be set to canvas center
   const numStars = 1000;
-  const galaxyRadius = 300; // pixels = 25,000 ly (keep it visible on screen)
+  const galaxyRadius = 300; // pixels
   const spiralTurns = 3; // number of spiral arms
-  const historyDuration = 1200; // real seconds of position history (1.2 million years)
+  const historyDuration = 20; // seconds of position history to keep
   
   // Player
-  // To cross 100,000 ly (1200 px) in 60 seconds = 20 px/s
-  // That's 1,667 ly/s = 1,667c in simulation time
   const player = { x: 0, y: 0, vx: 0, vy: 0 };
-  const basePlayerSpeed = 20; // px/s to cross galaxy in 1 minute
-  const playerAccel = 100; // pixels/sec^2
-  const playerFriction = 0.90; // More friction for better control at high speeds
+  const playerAccel = 400; // pixels/sec^2
+  const playerFriction = 0.95;
   const keysPressed = {};
   
   // Stars
   const stars = [];
   const starHistories = new Map(); // Map of star id to position history
+  
+  // Light waves
+  const lightWaves = [];
+  let lastWaveTime = 0;
+  const waveInterval = 0.5; // seconds between waves
+  let showLightWaves = false;
   
   // Simulation
   let simTime = 0;
@@ -114,53 +112,25 @@
         angularVelocity: getOrbitalVelocity(r), // rad/sec based on radius
         // Add some individual characteristics
         brightness: 0.5 + Math.random() * 0.5,
-        color: Math.random() > 0.5 ? '#ffffff' : '#ffffcc', // White or slightly yellow
+        color: Math.random() > 0.7 ? '#ffffff' : Math.random() > 0.3 ? '#ffffcc' : '#ffcccc',
         size: 1 + Math.random() * 2
       };
       
       stars.push(star);
-      
-      // Pre-populate history with 1 million years of past positions
-      // This is needed to see galactic rotation effects
-      const history = [];
-      const yearsToSimulate = 1000000; // years of history (1 million)
-      const realSecondsOfHistory = yearsToSimulate / timeScale; // = 1000 real seconds
-      const timeStep = 5; // sample every 5 real seconds = 5000 years
-      
-      for (let t = -realSecondsOfHistory; t <= 0; t += timeStep) {
-        const pastAngle = star.angle + star.angularVelocity * t;
-        const pastX = galacticCenter.x + star.radius * Math.cos(pastAngle);
-        const pastY = galacticCenter.y + star.radius * Math.sin(pastAngle);
-        const tangentialSpeed = star.radius * star.angularVelocity;
-        history.push({
-          x: pastX,
-          y: pastY,
-          vx: -tangentialSpeed * Math.sin(pastAngle),
-          vy: tangentialSpeed * Math.cos(pastAngle),
-          time: t
-        });
-      }
-      starHistories.set(i, history);
+      starHistories.set(i, []);
     }
   }
   
-  // Calculate orbital velocity based on radius
+  // Calculate orbital velocity based on radius (toy scale for visual effect)
   function getOrbitalVelocity(radius) {
-    // For visual effect, speed up rotation by 100x
-    // Real galaxy: ~220 km/s, but that's too slow to see
-    // We'll use ~22,000 km/s = 0.073c for dramatic effect
-    // This gives a full rotation in ~2.5 million years instead of 250 million
-    // In pixels: 0.073 / 166.67 = 0.000438 px/year
-    // With time scale: 0.000438 * 1000 = 0.438 px/s tangential
-    // Angular velocity = v/r
-    const tangentialVelocity = 0.438; // px/s in real time (100x faster)
-    return tangentialVelocity / (radius || 1); // rad/s
+    // Closer stars orbit faster for visual appeal
+    // This creates a nice spiral winding effect
+    return 0.5 / Math.sqrt(radius / 100); // rad/sec
   }
   
   // Calculate Doppler shift color
   function getDopplerColor(relativeVelocity) {
-    // Velocity is in px/s, convert to fraction of light speed
-    const velocityFraction = relativeVelocity / c_px_per_realsec;
+    const velocityFraction = relativeVelocity / c_px_per_sec;
     let shift;
     const absVel = Math.abs(velocityFraction);
     
@@ -212,34 +182,45 @@
   
   // Controls
   playerSpeedSelect.addEventListener('change', () => {
-    localStorage.setItem('galaxyPlayerSpeed', playerSpeedSelect.value);
+    localStorage.setItem('galaxyToyPlayerSpeed', playerSpeedSelect.value);
   });
   
   showActualToggle.addEventListener('change', () => {
     showActual = showActualToggle.checked;
-    localStorage.setItem('galaxyShowActual', showActual);
+    localStorage.setItem('galaxyToyShowActual', showActual);
   });
   
   showTrailsToggle.addEventListener('change', () => {
     showTrails = showTrailsToggle.checked;
-    localStorage.setItem('galaxyShowTrails', showTrails);
+    localStorage.setItem('galaxyToyShowTrails', showTrails);
+  });
+  
+  showLightWavesToggle.addEventListener('change', () => {
+    showLightWaves = showLightWavesToggle.checked;
+    localStorage.setItem('galaxyToyShowLightWaves', showLightWaves);
   });
   
   // Load settings
   function loadSettings() {
-    const savedSpeed = localStorage.getItem('galaxyPlayerSpeed');
+    const savedSpeed = localStorage.getItem('galaxyToyPlayerSpeed');
     if (savedSpeed) playerSpeedSelect.value = savedSpeed;
     
-    const savedActual = localStorage.getItem('galaxyShowActual');
+    const savedActual = localStorage.getItem('galaxyToyShowActual');
     if (savedActual) {
       showActual = savedActual === 'true';
       showActualToggle.checked = showActual;
     }
     
-    const savedTrails = localStorage.getItem('galaxyShowTrails');
+    const savedTrails = localStorage.getItem('galaxyToyShowTrails');
     if (savedTrails) {
       showTrails = savedTrails === 'true';
       showTrailsToggle.checked = showTrails;
+    }
+    
+    const savedWaves = localStorage.getItem('galaxyToyShowLightWaves');
+    if (savedWaves) {
+      showLightWaves = savedWaves === 'true';
+      showLightWavesToggle.checked = showLightWaves;
     }
   }
   
@@ -263,16 +244,32 @@
     if (keysPressed['ArrowDown']) player.vy += playerAccel * deltaSeconds;
     
     // Clamp to max speed
-    const speedMultiplier = parseFloat(playerSpeedSelect.value);
-    const playerMaxSpeed = basePlayerSpeed * speedMultiplier; // px/s
+    const playerMaxSpeed = parseFloat(playerSpeedSelect.value) * c_px_per_sec;
     const speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
     if (speed > playerMaxSpeed) {
       player.vx = (player.vx / speed) * playerMaxSpeed;
       player.vy = (player.vy / speed) * playerMaxSpeed;
     }
     
+    // Update position with edge bouncing
     player.x += player.vx * deltaSeconds;
     player.y += player.vy * deltaSeconds;
+    
+    if (player.x <= 20) {
+      player.x = 20;
+      player.vx = Math.max(0, player.vx);
+    } else if (player.x >= canvas.width - 20) {
+      player.x = canvas.width - 20;
+      player.vx = Math.min(0, player.vx);
+    }
+    
+    if (player.y <= 20) {
+      player.y = 20;
+      player.vy = Math.max(0, player.vy);
+    } else if (player.y >= canvas.height - 20) {
+      player.y = canvas.height - 20;
+      player.vy = Math.min(0, player.vy);
+    }
     
     // Update star positions and store history
     stars.forEach(star => {
@@ -302,7 +299,34 @@
       while (history.length > 0 && history[0].time < simTime - historyDuration) {
         history.shift();
       }
+      
+      // Emit light waves if enabled
+      if (showLightWaves && simTime - lastWaveTime >= waveInterval && star.id % 50 === 0) {
+        // Only emit from every 50th star to avoid too many waves
+        lightWaves.push({
+          x: actualX,
+          y: actualY,
+          time: simTime,
+          color: star.color
+        });
+      }
     });
+    
+    // Update global wave timer
+    if (simTime - lastWaveTime >= waveInterval) {
+      lastWaveTime = simTime;
+    }
+    
+    // Clean old light waves
+    const maxRadius = Math.sqrt(canvas.width * canvas.width + canvas.height * canvas.height) + 100;
+    for (let i = lightWaves.length - 1; i >= 0; i--) {
+      const wave = lightWaves[i];
+      const age = simTime - wave.time;
+      const radius = age * c_px_per_sec;
+      if (radius > maxRadius) {
+        lightWaves.splice(i, 1);
+      }
+    }
     
     // Render
     ctx.fillStyle = '#000';
@@ -314,65 +338,70 @@
     ctx.arc(galacticCenter.x, galacticCenter.y, 5, 0, 2 * Math.PI);
     ctx.fill();
     
+    // Draw light waves if enabled
+    if (showLightWaves) {
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.5;
+      
+      lightWaves.forEach(wave => {
+        const age = simTime - wave.time;
+        const radius = age * c_px_per_sec;
+        
+        // Fade out as the wave expands
+        const fadeAlpha = Math.max(0, 1 - age / 10) * 0.3;
+        ctx.globalAlpha = fadeAlpha;
+        ctx.strokeStyle = wave.color || '#666';
+        
+        ctx.beginPath();
+        ctx.arc(wave.x, wave.y, radius, 0, 2 * Math.PI);
+        ctx.stroke();
+      });
+      
+      ctx.globalAlpha = 1.0;
+    }
+    
     // Find visible star positions based on light cones
     let visibleCount = 0;
-    const tolerance = 20; // pixels tolerance for light cone intersection (increased for galactic scale)
+    const tolerance = 10; // pixels tolerance for light cone intersection
     
     stars.forEach(star => {
       const history = starHistories.get(star.id);
       let rendered = false;
       
       // Find positions whose light reaches the player now
-      let closestMatch = null;
-      let closestDiff = Infinity;
-      
       for (const pos of history) {
         const timeSinceEmission = simTime - pos.time;
-        const lightDistance = timeSinceEmission * c_px_per_realsec;
+        const lightDistance = timeSinceEmission * c_px_per_sec;
         const actualDistance = Math.sqrt(
           Math.pow(player.x - pos.x, 2) + 
           Math.pow(player.y - pos.y, 2)
         );
         
-        const diff = Math.abs(actualDistance - lightDistance);
-        
-        if (diff < tolerance) {
+        if (Math.abs(actualDistance - lightDistance) < tolerance) {
           // This light reaches us now!
-          closestMatch = pos;
-          closestDiff = diff;
-          break; // Use first good match
-        } else if (diff < closestDiff) {
-          // Track closest match as fallback
-          closestMatch = pos;
-          closestDiff = diff;
+          // Calculate relative velocity for Doppler shift
+          const dx = player.x - pos.x;
+          const dy = player.y - pos.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const dirX = dx / dist;
+          const dirY = dy / dist;
+          
+          const starVelTowardPlayer = (pos.vx || 0) * dirX + (pos.vy || 0) * dirY;
+          const playerVelTowardStar = -player.vx * dirX - player.vy * dirY;
+          const relativeVelocity = starVelTowardPlayer + playerVelTowardStar;
+          
+          // Draw the star with Doppler shift
+          const baseColor = getDopplerColor(relativeVelocity);
+          ctx.fillStyle = baseColor;
+          ctx.globalAlpha = star.brightness * Math.max(0.3, 1 - timeSinceEmission / 10);
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, star.size, 0, 2 * Math.PI);
+          ctx.fill();
+          
+          rendered = true;
+          visibleCount++;
+          break; // Only render the first matching position
         }
-      }
-      
-      // Render the best match we found
-      if (closestMatch && closestDiff < tolerance * 3) { // Be more lenient
-        const pos = closestMatch;
-        const timeSinceEmission = simTime - pos.time;
-        
-        // Calculate relative velocity for Doppler shift
-        const dx = player.x - pos.x;
-        const dy = player.y - pos.y;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const dirX = dx / dist;
-        const dirY = dy / dist;
-        
-        const starVelTowardPlayer = (pos.vx || 0) * dirX + (pos.vy || 0) * dirY;
-        const playerVelTowardStar = -player.vx * dirX - player.vy * dirY;
-        const relativeVelocity = starVelTowardPlayer + playerVelTowardStar;
-        
-        // Draw the star with Doppler shift
-        ctx.fillStyle = getDopplerColor(relativeVelocity);
-        ctx.globalAlpha = star.brightness * Math.max(0.3, 1 - timeSinceEmission / 100);
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, star.size, 0, 2 * Math.PI);
-        ctx.fill();
-        
-        rendered = true;
-        visibleCount++;
       }
       
       // Draw actual position if enabled
@@ -387,8 +416,8 @@
       
       // Draw light trails if enabled
       if (showTrails && history.length > 1) {
-        ctx.strokeStyle = '#333';
-        ctx.globalAlpha = 0.3;
+        ctx.strokeStyle = star.color;
+        ctx.globalAlpha = 0.2;
         ctx.beginPath();
         ctx.moveTo(history[0].x, history[0].y);
         for (let i = 1; i < history.length; i++) {
@@ -411,14 +440,9 @@
     
     // Update info display
     const playerSpeed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
-    // Convert px/s to light speed: playerSpeed / c_px_per_realsec
-    const playerSpeedInC = (playerSpeed / c_px_per_realsec).toFixed(0);
-    speedDisplay.textContent = playerSpeedInC;
-    // Convert position to light-years
-    const posXLy = Math.round((player.x - galacticCenter.x) * lyPerPixel);
-    const posYLy = Math.round((player.y - galacticCenter.y) * lyPerPixel);
-    posXDisplay.textContent = posXLy.toLocaleString() + ' ly';
-    posYDisplay.textContent = posYLy.toLocaleString() + ' ly';
+    speedDisplay.textContent = (playerSpeed / c_px_per_sec).toFixed(2);
+    posXDisplay.textContent = Math.round(player.x - galacticCenter.x);
+    posYDisplay.textContent = Math.round(player.y - galacticCenter.y);
     visibleCountDisplay.textContent = visibleCount;
     
     requestAnimationFrame(animate);
