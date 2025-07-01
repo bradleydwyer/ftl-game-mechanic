@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Galaxy Light-Lag Demo</title>
+<style>
+  body { background: #000; color: #eee; font-family: sans-serif; margin: 0; overflow: hidden; }
+  #info { position: absolute; top: 10px; left: 10px; font-size: 12px; }
+  #controls { position: absolute; top: 10px; right: 10px; text-align: right; }
+  canvas { display: block; }
+  label { display: block; margin: 5px 0; }
+  select { background: #333; color: #eee; border: 1px solid #555; }
+</style>
+</head>
+<body>
+<div id="info">
+  <div>Speed: <span id="speedDisplay">0.00</span>c</div>
+  <div>Position: (<span id="posX">0</span>, <span id="posY">0</span>)</div>
+  <div>Visible stars: <span id="visibleCount">0</span></div>
+</div>
+<div id="controls">
+  <label>Max Speed: <select id="playerSpeedSelect">
+    <option value="0.25">0.25c</option>
+    <option value="0.5">0.5c</option>
+    <option value="0.75">0.75c</option>
+    <option value="1" selected>1c</option>
+    <option value="1.5">1.5c</option>
+    <option value="2">2c</option>
+    <option value="4">4c</option>
+    <option value="8">8c</option>
+  </select></label>
+  <label><input type="checkbox" id="showActualToggle"> Show Actual Positions</label>
+  <label><input type="checkbox" id="showTrailsToggle"> Show Light Trails</label>
+</div>
+<canvas id="canvas"></canvas>
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const playerSpeedSelect = document.getElementById('playerSpeedSelect');
+  const showActualToggle = document.getElementById('showActualToggle');
+  const showTrailsToggle = document.getElementById('showTrailsToggle');
+  const speedDisplay = document.getElementById('speedDisplay');
+  const posXDisplay = document.getElementById('posX');
+  const posYDisplay = document.getElementById('posY');
+  const visibleCountDisplay = document.getElementById('visibleCount');
+  
+  // Constants
+  const c_px_per_sec = 200; // pixels per light-second (faster for galactic scale)
+  const galacticCenter = { x: 0, y: 0 }; // Will be set to canvas center
+  const numStars = 500;
+  const galaxyRadius = 300; // pixels
+  const spiralTurns = 2; // number of spiral arms
+  const historyDuration = 10; // seconds of position history to keep
+  
+  // Player
+  const player = { x: 0, y: 0, vx: 0, vy: 0 };
+  const playerAccel = 400; // pixels/sec^2
+  const playerFriction = 0.95;
+  const keysPressed = {};
+  
+  // Stars
+  const stars = [];
+  const starHistories = new Map(); // Map of star id to position history
+  
+  // Simulation
+  let simTime = 0;
+  let lastTimestamp = null;
+  let showActual = false;
+  let showTrails = false;
+  
+  // Resize canvas
+  function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    galacticCenter.x = canvas.width / 2;
+    galacticCenter.y = canvas.height / 2;
+    if (stars.length === 0) {
+      player.x = galacticCenter.x;
+      player.y = galacticCenter.y - 200; // Start above center
+    }
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+  
+  // Generate spiral galaxy
+  function generateGalaxy() {
+    for (let i = 0; i < numStars; i++) {
+      const t = i / numStars; // 0 to 1
+      const radius = galaxyRadius * (0.2 + 0.8 * t); // 20% to 100% of galaxy radius
+      const angle = t * spiralTurns * 2 * Math.PI;
+      
+      // Add some randomness for natural look
+      const radiusJitter = (Math.random() - 0.5) * 20;
+      const angleJitter = (Math.random() - 0.5) * 0.3;
+      
+      const r = radius + radiusJitter;
+      const a = angle + angleJitter;
+      
+      const star = {
+        id: i,
+        radius: r, // Orbital radius
+        angle: a, // Current angle
+        angularVelocity: getOrbitalVelocity(r), // rad/sec based on radius
+        // Add some individual characteristics
+        brightness: 0.5 + Math.random() * 0.5,
+        color: Math.random() > 0.5 ? '#ffffff' : '#ffffcc', // White or slightly yellow
+        size: 1 + Math.random() * 2
+      };
+      
+      stars.push(star);
+      starHistories.set(i, []);
+    }
+  }
+  
+  // Calculate orbital velocity based on radius (simplified Kepler's law)
+  function getOrbitalVelocity(radius) {
+    // Closer stars orbit faster
+    // v = sqrt(GM/r), but simplified for visual effect
+    return 0.5 / Math.sqrt(radius / 100); // rad/sec
+  }
+  
+  // Calculate Doppler shift color
+  function getDopplerColor(relativeVelocity) {
+    const velocityFraction = relativeVelocity / c_px_per_sec;
+    let shift;
+    const absVel = Math.abs(velocityFraction);
+    
+    if (absVel <= 1) {
+      shift = velocityFraction * 0.5;
+    } else if (absVel <= 2) {
+      shift = Math.sign(velocityFraction) * (0.5 + 0.2 * (absVel - 1));
+    } else if (absVel <= 4) {
+      shift = Math.sign(velocityFraction) * (0.7 + 0.2 * Math.log2(absVel / 2));
+    } else {
+      shift = Math.sign(velocityFraction) * (0.9 + 0.1 * (1 - 1 / absVel));
+    }
+    
+    shift = Math.max(-1, Math.min(1, shift));
+    
+    if (shift > 0) {
+      // Blue shift
+      const intensity = shift;
+      const r = Math.round(255 * (1 - intensity));
+      const g = Math.round(255 * (1 - intensity * 0.7));
+      const b = 255;
+      return `rgb(${r}, ${g}, ${b})`;
+    } else if (shift < 0) {
+      // Red shift
+      const intensity = -shift;
+      const r = 255;
+      const g = Math.round(255 * (1 - intensity * 0.7));
+      const b = Math.round(255 * (1 - intensity));
+      return `rgb(${r}, ${g}, ${b})`;
+    } else {
+      return '#ffffff';
+    }
+  }
+  
+  // Keyboard controls
+  document.addEventListener('keydown', (e) => {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      e.preventDefault();
+      keysPressed[e.key] = true;
+    }
+  });
+  
+  document.addEventListener('keyup', (e) => {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      e.preventDefault();
+      keysPressed[e.key] = false;
+    }
+  });
+  
+  // Controls
+  playerSpeedSelect.addEventListener('change', () => {
+    localStorage.setItem('galaxyPlayerSpeed', playerSpeedSelect.value);
+  });
+  
+  showActualToggle.addEventListener('change', () => {
+    showActual = showActualToggle.checked;
+    localStorage.setItem('galaxyShowActual', showActual);
+  });
+  
+  showTrailsToggle.addEventListener('change', () => {
+    showTrails = showTrailsToggle.checked;
+    localStorage.setItem('galaxyShowTrails', showTrails);
+  });
+  
+  // Load settings
+  function loadSettings() {
+    const savedSpeed = localStorage.getItem('galaxyPlayerSpeed');
+    if (savedSpeed) playerSpeedSelect.value = savedSpeed;
+    
+    const savedActual = localStorage.getItem('galaxyShowActual');
+    if (savedActual) {
+      showActual = savedActual === 'true';
+      showActualToggle.checked = showActual;
+    }
+    
+    const savedTrails = localStorage.getItem('galaxyShowTrails');
+    if (savedTrails) {
+      showTrails = savedTrails === 'true';
+      showTrailsToggle.checked = showTrails;
+    }
+  }
+  
+  // Animation loop
+  function animate(timestamp) {
+    if (!lastTimestamp) lastTimestamp = timestamp;
+    const deltaSeconds = Math.min((timestamp - lastTimestamp) / 1000, 0.1);
+    simTime += deltaSeconds;
+    lastTimestamp = timestamp;
+    
+    // Update player physics
+    const anyKeyPressed = Object.values(keysPressed).some(v => v);
+    if (!anyKeyPressed) {
+      player.vx *= playerFriction;
+      player.vy *= playerFriction;
+    }
+    
+    if (keysPressed['ArrowLeft']) player.vx -= playerAccel * deltaSeconds;
+    if (keysPressed['ArrowRight']) player.vx += playerAccel * deltaSeconds;
+    if (keysPressed['ArrowUp']) player.vy -= playerAccel * deltaSeconds;
+    if (keysPressed['ArrowDown']) player.vy += playerAccel * deltaSeconds;
+    
+    // Clamp to max speed
+    const playerMaxSpeed = parseFloat(playerSpeedSelect.value) * c_px_per_sec;
+    const speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+    if (speed > playerMaxSpeed) {
+      player.vx = (player.vx / speed) * playerMaxSpeed;
+      player.vy = (player.vy / speed) * playerMaxSpeed;
+    }
+    
+    player.x += player.vx * deltaSeconds;
+    player.y += player.vy * deltaSeconds;
+    
+    // Update star positions and store history
+    stars.forEach(star => {
+      // Update orbital position
+      star.angle += star.angularVelocity * deltaSeconds;
+      
+      // Calculate actual position
+      const actualX = galacticCenter.x + star.radius * Math.cos(star.angle);
+      const actualY = galacticCenter.y + star.radius * Math.sin(star.angle);
+      
+      // Calculate velocity (tangential to orbit)
+      const tangentialSpeed = star.radius * star.angularVelocity;
+      const vx = -tangentialSpeed * Math.sin(star.angle);
+      const vy = tangentialSpeed * Math.cos(star.angle);
+      
+      // Store in history
+      const history = starHistories.get(star.id);
+      history.push({
+        x: actualX,
+        y: actualY,
+        vx: vx,
+        vy: vy,
+        time: simTime
+      });
+      
+      // Clean old history
+      while (history.length > 0 && history[0].time < simTime - historyDuration) {
+        history.shift();
+      }
+    });
+    
+    // Render
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw galactic center
+    ctx.fillStyle = '#666';
+    ctx.beginPath();
+    ctx.arc(galacticCenter.x, galacticCenter.y, 5, 0, 2 * Math.PI);
+    ctx.fill();
+    
+    // Find visible star positions based on light cones
+    let visibleCount = 0;
+    const tolerance = 5; // pixels tolerance for light cone intersection
+    
+    stars.forEach(star => {
+      const history = starHistories.get(star.id);
+      let rendered = false;
+      
+      // Find positions whose light reaches the player now
+      for (const pos of history) {
+        const timeSinceEmission = simTime - pos.time;
+        const lightDistance = timeSinceEmission * c_px_per_sec;
+        const actualDistance = Math.sqrt(
+          Math.pow(player.x - pos.x, 2) + 
+          Math.pow(player.y - pos.y, 2)
+        );
+        
+        if (Math.abs(actualDistance - lightDistance) < tolerance) {
+          // This light reaches us now!
+          // Calculate relative velocity for Doppler shift
+          const dx = player.x - pos.x;
+          const dy = player.y - pos.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const dirX = dx / dist;
+          const dirY = dy / dist;
+          
+          const starVelTowardPlayer = (pos.vx || 0) * dirX + (pos.vy || 0) * dirY;
+          const playerVelTowardStar = -player.vx * dirX - player.vy * dirY;
+          const relativeVelocity = starVelTowardPlayer + playerVelTowardStar;
+          
+          // Draw the star with Doppler shift
+          ctx.fillStyle = getDopplerColor(relativeVelocity);
+          ctx.globalAlpha = star.brightness * Math.max(0.3, 1 - timeSinceEmission / 5);
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, star.size, 0, 2 * Math.PI);
+          ctx.fill();
+          
+          rendered = true;
+          visibleCount++;
+          break; // Only render the first matching position
+        }
+      }
+      
+      // Draw actual position if enabled
+      if (showActual && history.length > 0) {
+        const current = history[history.length - 1];
+        ctx.strokeStyle = '#444';
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath();
+        ctx.arc(current.x, current.y, star.size + 2, 0, 2 * Math.PI);
+        ctx.stroke();
+      }
+      
+      // Draw light trails if enabled
+      if (showTrails && history.length > 1) {
+        ctx.strokeStyle = '#333';
+        ctx.globalAlpha = 0.3;
+        ctx.beginPath();
+        ctx.moveTo(history[0].x, history[0].y);
+        for (let i = 1; i < history.length; i++) {
+          ctx.lineTo(history[i].x, history[i].y);
+        }
+        ctx.stroke();
+      }
+    });
+    
+    ctx.globalAlpha = 1.0;
+    
+    // Draw player
+    ctx.fillStyle = '#ffff00';
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y - 8);
+    ctx.lineTo(player.x - 6, player.y + 5);
+    ctx.lineTo(player.x + 6, player.y + 5);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Update info display
+    const playerSpeed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+    speedDisplay.textContent = (playerSpeed / c_px_per_sec).toFixed(2);
+    posXDisplay.textContent = Math.round(player.x - galacticCenter.x);
+    posYDisplay.textContent = Math.round(player.y - galacticCenter.y);
+    visibleCountDisplay.textContent = visibleCount;
+    
+    requestAnimationFrame(animate);
+  }
+  
+  // Initialize
+  loadSettings();
+  generateGalaxy();
+  requestAnimationFrame(animate);
+})();
+</script>
+</body>
+</html>
