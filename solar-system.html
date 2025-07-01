@@ -48,16 +48,16 @@
   <label><input type="checkbox" id="showLagToggle"> Show Lag Time</label>
   <label><input type="checkbox" id="pauseToggle"> Pause</label>
   <label>Autopilot Target: <select id="autopilotTargetSelect">
-    <option value="0">◆ AI-1</option>
-    <option value="1">▲ AI-2</option>
-    <option value="2">● AI-3</option>
-    <option value="3">■ AI-4</option>
-    <option value="4">★ AI-5</option>
-    <option value="5">♦ AI-6</option>
-    <option value="6">▼ AI-7</option>
-    <option value="7">◐ AI-8</option>
-    <option value="8">✦ AI-9</option>
-    <option value="9">◈ AI-10</option>
+    <option value="0">◆ 512c</option>
+    <option value="1">▲ 256c</option>
+    <option value="2">● 128c</option>
+    <option value="3">■ 64c</option>
+    <option value="4">★ 32c</option>
+    <option value="5">♦ 16c</option>
+    <option value="6">▼ 8c</option>
+    <option value="7">◐ 4c</option>
+    <option value="8">✦ 2c</option>
+    <option value="9">◈ 1c</option>
   </select></label>
   <label><button id="autopilotButton">Autopilot</button></label>
   <label>Image Separation: <select id="separationSelect">
@@ -125,6 +125,8 @@
   // AI Ships - 10 different ships with unique symbols
   const aiSymbols = ['◆', '▲', '●', '■', '★', '♦', '▼', '◐', '✦', '◈'];
   const aiColors = ['#0ff', '#f0f', '#ff0', '#0f0', '#f60', '#66f', '#f66', '#6ff', '#f6f', '#6f6'];
+  // Top 10 speeds: 512c, 256c, 128c, 64c, 32c, 16c, 8c, 4c, 2c, 1c
+  const aiSpeeds = [512, 256, 128, 64, 32, 16, 8, 4, 2, 1];
   const aiShips = [];
   
   for (let i = 0; i < 10; i++) {
@@ -137,7 +139,7 @@
       vx: 0,
       vy: 0,
       targetPlanet: null,
-      speed: Math.pow(2, Math.floor(Math.random() * 5)), // Random speed: 1c, 2c, 4c, 8c, or 16c
+      speed: aiSpeeds[i], // Assign speeds in order from fastest to slowest
       pathPoints: [],
       pathProgress: 0,
       decisionTime: Math.random() * 10, // Stagger initial decisions
