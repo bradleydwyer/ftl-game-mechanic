@@ -1,0 +1,1047 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Solar System Light-Lag Demo</title>
+<style>
+  body { background: #000; color: #eee; font-family: sans-serif; margin: 0; overflow: hidden; }
+  #info { position: absolute; top: 10px; left: 10px; font-size: 12px; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px; }
+  #controls { position: absolute; top: 10px; right: 10px; text-align: right; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px; }
+  canvas { display: block; cursor: crosshair; }
+  label { display: block; margin: 5px 0; }
+  select { background: #333; color: #eee; border: 1px solid #555; }
+  .subtitle { font-size: 10px; color: #888; }
+  #zoomInfo { position: absolute; bottom: 10px, left: 10px; font-size: 10px; color: #666; }
+</style>
+</head>
+<body>
+<div id="info">
+  <div>Speed: <span id="speedDisplay">0.00</span></div>
+  <div>Position: <span id="posDisplay">(0.00, 0.00)</span> AU</div>
+  <div>Light-lag to Earth: <span id="earthLagDisplay">0.0</span> min</div>
+  <div>Light-lag to AI: <span id="aiLagDisplay">0.0</span></div>
+  <div>Visible objects: <span id="visibleCount">0</span></div>
+  <div class="subtitle">Mouse wheel or +/- to zoom, Tab for camera mode</div>
+  <div class="subtitle">Camera: <span id="cameraMode">Player</span></div>
+  <div class="subtitle">AI Ship: <span id="aiStatus">Initializing</span></div>
+</div>
+<div id="controls">
+  <label>Max Speed: <select id="playerSpeedSelect">
+    <option value="0.25">0.25c</option>
+    <option value="0.5">0.5c</option>
+    <option value="1">1c</option>
+    <option value="2">2c</option>
+    <option value="4">4c</option>
+    <option value="8">8c</option>
+    <option value="16">16c</option>
+    <option value="32" selected>32c</option>
+    <option value="64">64c</option>
+    <option value="128">128c</option>
+    <option value="256">256c</option>
+    <option value="512">512c</option>
+  </select></label>
+  <label><input type="checkbox" id="showOrbitsToggle" checked> Show Orbits</label>
+  <label><input type="checkbox" id="showActualToggle"> Show Actual Positions</label>
+  <label><input type="checkbox" id="showTrailsToggle"> Show Trails</label>
+  <label><input type="checkbox" id="showLightWavesToggle"> Show Light Waves</label>
+  <label><input type="checkbox" id="showGridToggle"> Show Grid</label>
+  <label><input type="checkbox" id="showLagToggle"> Show Lag Time</label>
+  <label><input type="checkbox" id="pauseToggle"> Pause</label>
+  <label>AI Speed: <select id="aiSpeedSelect">
+    <option value="0.25">0.25c</option>
+    <option value="0.5">0.5c</option>
+    <option value="1">1c</option>
+    <option value="2" selected>2c</option>
+    <option value="4">4c</option>
+    <option value="8">8c</option>
+    <option value="16">16c</option>
+    <option value="32">32c</option>
+    <option value="64">64c</option>
+    <option value="128">128c</option>
+    <option value="256">256c</option>
+    <option value="512">512c</option>
+  </select></label>
+  <label>Image Separation: <select id="separationSelect">
+    <option value="0.05">0.05s</option>
+    <option value="0.1">0.1s</option>
+    <option value="0.2">0.2s</option>
+    <option value="0.3">0.3s</option>
+    <option value="0.4">0.4s</option>
+    <option value="0.5" selected>0.5s</option>
+    <option value="0.75">0.75s</option>
+    <option value="1.0">1.0s</option>
+    <option value="1.5">1.5s</option>
+    <option value="2.0">2.0s</option>
+  </select></label>
+  <label>Sampling Quality: <select id="samplingSelect">
+    <option value="minimal">Minimal (5 samples)</option>
+    <option value="fast">Fast (5x)</option>
+    <option value="balanced" selected>Balanced (10x)</option>
+    <option value="precise">Precise (20x)</option>
+  </select></label>
+</div>
+<canvas id="canvas"></canvas>
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  
+  // UI Elements
+  const playerSpeedSelect = document.getElementById('playerSpeedSelect');
+  const showOrbitsToggle = document.getElementById('showOrbitsToggle');
+  const showActualToggle = document.getElementById('showActualToggle');
+  const showTrailsToggle = document.getElementById('showTrailsToggle');
+  const showLightWavesToggle = document.getElementById('showLightWavesToggle');
+  const showGridToggle = document.getElementById('showGridToggle');
+  const showLagToggle = document.getElementById('showLagToggle');
+  const pauseToggle = document.getElementById('pauseToggle');
+  const aiSpeedSelect = document.getElementById('aiSpeedSelect');
+  const separationSelect = document.getElementById('separationSelect');
+  const samplingSelect = document.getElementById('samplingSelect');
+  const speedDisplay = document.getElementById('speedDisplay');
+  const posDisplay = document.getElementById('posDisplay');
+  const earthLagDisplay = document.getElementById('earthLagDisplay');
+  const aiLagDisplay = document.getElementById('aiLagDisplay');
+  const visibleCountDisplay = document.getElementById('visibleCount');
+  const cameraModeDisplay = document.getElementById('cameraMode');
+  const aiStatusDisplay = document.getElementById('aiStatus');
+  
+  // Constants
+  const AU = 1; // 1 AU in our units
+  const c_au_per_sec = 1 / 498; // Light travels 1 AU in 498 seconds (8.3 minutes)
+  const timeScale = 1; // Real-time: 1 second = 1 second
+  const c_au_per_realsec = c_au_per_sec; // ~0.002 AU/s
+  
+  // Viewport and camera
+  let zoom = 0.01; // pixels per AU (will be adjusted on resize)
+  let cameraX = 0;
+  let cameraY = 0;
+  let cameraMode = 'player'; // 'player', 'ai', 'free'
+  
+  // Player
+  const player = { x: 0, y: -5, vx: 0, vy: 0 }; // Start at 5 AU below sun
+  const playerAccel = 2.0; // AU/s^2 acceleration (increased for better control at high speeds)
+  const playerFriction = 0.95;
+  const keysPressed = {};
+  
+  // AI Ship - start closer for quicker light travel
+  const aiShip = {
+    x: 2,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    targetPlanet: null,
+    speed: 2, // Current speed in c
+    pathPoints: [],
+    pathProgress: 0,
+    decisionTime: 0,
+    status: 'idle'
+  };
+  
+  // Solar System Data
+  const sun = { name: 'Sun', x: 0, y: 0, radius: 0.05, color: '#ffff00' };
+  
+  const planets = [
+    { name: 'Mercury', orbitalRadius: 0.39, period: 88, color: '#888888', radius: 0.02 },
+    { name: 'Venus', orbitalRadius: 0.72, period: 225, color: '#ffcc66', radius: 0.04 },
+    { name: 'Earth', orbitalRadius: 1.0, period: 365, color: '#4444ff', radius: 0.04 },
+    { name: 'Mars', orbitalRadius: 1.52, period: 687, color: '#ff6644', radius: 0.03 },
+    { name: 'Jupiter', orbitalRadius: 5.2, period: 4333, color: '#cc9966', radius: 0.08 },
+    { name: 'Saturn', orbitalRadius: 9.5, period: 10759, color: '#ffcc99', radius: 0.07 },
+    { name: 'Uranus', orbitalRadius: 19.2, period: 30687, color: '#66cccc', radius: 0.05 },
+    { name: 'Neptune', orbitalRadius: 30.1, period: 60190, color: '#4466ff', radius: 0.05 }
+  ];
+  
+  // Add orbital angle and angular velocity to each planet
+  planets.forEach((planet, i) => {
+    planet.angle = Math.random() * 2 * Math.PI; // Random starting position
+    planet.angularVelocity = (2 * Math.PI) / (planet.period * 86400); // rad/s (real-time)
+    planet.id = i;
+  });
+  
+  // Position histories
+  const positionHistories = new Map();
+  const maxHistoryDuration = 7200; // 2 hours of history in real seconds
+  
+  // Light waves
+  const lightWaves = [];
+  let lastWaveTime = 0;
+  const waveInterval = 2; // seconds between waves
+  
+  // Simulation
+  let simTime = 0;
+  let lastTimestamp = null;
+  let paused = false;
+  let showOrbits = true;
+  let showActual = false;
+  let showTrails = false;
+  let showLightWaves = false;
+  let showGrid = false;
+  let showLagTime = false; // whether to show lag time labels
+  let imageSeparation = 0.5; // seconds between visible instances
+  let samplingQuality = 'balanced'; // sampling quality setting
+  
+  // Initialize histories
+  function initializeHistories() {
+    // Initialize empty histories
+    positionHistories.set('sun', []);
+    planets.forEach(planet => {
+      positionHistories.set(planet.name, []);
+    });
+    positionHistories.set('player', []);
+    positionHistories.set('ai', []);
+    
+    // Pre-populate history for all objects so light has time to reach player
+    const historyDuration = 7200; // 2 hours should be enough for light to cross the solar system
+    
+    // Sun history (stationary)
+    const sunHistory = positionHistories.get('sun');
+    for (let t = -historyDuration; t <= 0; t += 10) { // Sample every 10 seconds
+      sunHistory.push({
+        x: sun.x,
+        y: sun.y,
+        vx: 0,
+        vy: 0,
+        time: t
+      });
+    }
+    
+    // Planet histories (orbital motion)
+    planets.forEach(planet => {
+      const history = positionHistories.get(planet.name);
+      for (let t = -historyDuration; t <= 0; t += 10) {
+        const historicalAngle = planet.angle - planet.angularVelocity * Math.abs(t);
+        const x = planet.orbitalRadius * Math.cos(historicalAngle);
+        const y = planet.orbitalRadius * Math.sin(historicalAngle);
+        const tangentialSpeed = planet.orbitalRadius * planet.angularVelocity;
+        const vx = -tangentialSpeed * Math.sin(historicalAngle);
+        const vy = tangentialSpeed * Math.cos(historicalAngle);
+        history.push({ x, y, vx, vy, time: t });
+      }
+    });
+    
+    // AI ship history (stationary at start)
+    const aiHistory = positionHistories.get('ai');
+    for (let t = -historyDuration; t <= 0; t += 10) {
+      aiHistory.push({
+        x: aiShip.x,
+        y: aiShip.y,
+        vx: 0,
+        vy: 0,
+        time: t
+      });
+    }
+    
+    // Player history (stationary at start)
+    const playerHistory = positionHistories.get('player');
+    for (let t = -historyDuration; t <= 0; t += 10) {
+      playerHistory.push({
+        x: player.x,
+        y: player.y,
+        vx: 0,
+        vy: 0,
+        time: t
+      });
+    }
+  }
+  
+  // Resize canvas
+  function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    // Adjust zoom to fit both player and AI ship initially
+    // Player starts at (0, -5) and AI at (2, 0), so about 5.4 AU span
+    const minDimension = Math.min(canvas.width, canvas.height);
+    zoom = minDimension / 20; // Show about 10 AU radius to fit both ships
+  }
+  
+  // Convert world coordinates to screen
+  function worldToScreen(x, y) {
+    return {
+      x: (x - cameraX) * zoom + canvas.width / 2,
+      y: (y - cameraY) * zoom + canvas.height / 2
+    };
+  }
+  
+  // Convert screen coordinates to world
+  function screenToWorld(x, y) {
+    return {
+      x: (x - canvas.width / 2) / zoom + cameraX,
+      y: (y - canvas.height / 2) / zoom + cameraY
+    };
+  }
+  
+  // Calculate Doppler shift color
+  function getDopplerColor(relativeVelocity) {
+    const velocityFraction = relativeVelocity / c_au_per_realsec;
+    let shift;
+    const absVel = Math.abs(velocityFraction);
+    
+    if (absVel <= 1) {
+      shift = velocityFraction * 0.5;
+    } else if (absVel <= 2) {
+      shift = Math.sign(velocityFraction) * (0.5 + 0.2 * (absVel - 1));
+    } else if (absVel <= 4) {
+      shift = Math.sign(velocityFraction) * (0.7 + 0.2 * Math.log2(absVel / 2));
+    } else {
+      shift = Math.sign(velocityFraction) * (0.9 + 0.1 * (1 - 1 / absVel));
+    }
+    
+    shift = Math.max(-1, Math.min(1, shift));
+    
+    if (shift > 0) {
+      const intensity = shift;
+      const r = Math.round(255 * (1 - intensity));
+      const g = Math.round(255 * (1 - intensity * 0.7));
+      const b = 255;
+      return `rgb(${r}, ${g}, ${b})`;
+    } else if (shift < 0) {
+      const intensity = -shift;
+      const r = 255;
+      const g = Math.round(255 * (1 - intensity * 0.7));
+      const b = Math.round(255 * (1 - intensity));
+      return `rgb(${r}, ${g}, ${b})`;
+    } else {
+      return '#ffffff';
+    }
+  }
+  
+  // Keyboard controls
+  document.addEventListener('keydown', (e) => {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      e.preventDefault();
+      keysPressed[e.key] = true;
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      // Cycle camera modes
+      if (cameraMode === 'player') cameraMode = 'ai';
+      else if (cameraMode === 'ai') cameraMode = 'free';
+      else cameraMode = 'player';
+      cameraModeDisplay.textContent = cameraMode.charAt(0).toUpperCase() + cameraMode.slice(1);
+    } else if (e.key === ' ') {
+      e.preventDefault();
+      pauseToggle.checked = !pauseToggle.checked;
+      paused = pauseToggle.checked;
+    } else if (e.key === '=' || e.key === '+') {
+      e.preventDefault();
+      zoom *= 1.2;
+      zoom = Math.min(zoom, 10000); // Allow much more zoom in
+    } else if (e.key === '-' || e.key === '_') {
+      e.preventDefault();
+      zoom *= 0.8;
+      zoom = Math.max(zoom, 0.001); // Keep existing minimum
+    }
+  });
+  
+  document.addEventListener('keyup', (e) => {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      e.preventDefault();
+      keysPressed[e.key] = false;
+    }
+  });
+  
+  // Mouse wheel zoom
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+    zoom *= zoomFactor;
+    zoom = Math.max(0.001, Math.min(zoom, 10000)); // Allow much more zoom in
+  });
+  
+  // UI Controls
+  playerSpeedSelect.addEventListener('change', () => {
+    localStorage.setItem('solarSystemPlayerSpeed', playerSpeedSelect.value);
+  });
+  
+  showOrbitsToggle.addEventListener('change', () => {
+    showOrbits = showOrbitsToggle.checked;
+    localStorage.setItem('solarSystemShowOrbits', showOrbits);
+  });
+  
+  showActualToggle.addEventListener('change', () => {
+    showActual = showActualToggle.checked;
+    localStorage.setItem('solarSystemShowActual', showActual);
+  });
+  
+  showTrailsToggle.addEventListener('change', () => {
+    showTrails = showTrailsToggle.checked;
+    localStorage.setItem('solarSystemShowTrails', showTrails);
+  });
+  
+  showLightWavesToggle.addEventListener('change', () => {
+    showLightWaves = showLightWavesToggle.checked;
+    localStorage.setItem('solarSystemShowLightWaves', showLightWaves);
+  });
+  
+  showGridToggle.addEventListener('change', () => {
+    showGrid = showGridToggle.checked;
+    localStorage.setItem('solarSystemShowGrid', showGrid);
+  });
+  
+  showLagToggle.addEventListener('change', () => {
+    showLagTime = showLagToggle.checked;
+    localStorage.setItem('solarSystemShowLagTime', showLagTime);
+  });
+  
+  pauseToggle.addEventListener('change', () => {
+    paused = pauseToggle.checked;
+  });
+  
+  aiSpeedSelect.addEventListener('change', () => {
+    aiShip.speed = parseFloat(aiSpeedSelect.value);
+    localStorage.setItem('solarSystemAISpeed', aiShip.speed);
+  });
+  
+  separationSelect.addEventListener('change', () => {
+    imageSeparation = parseFloat(separationSelect.value);
+    localStorage.setItem('solarSystemImageSeparation', imageSeparation);
+  });
+  
+  samplingSelect.addEventListener('change', () => {
+    samplingQuality = samplingSelect.value;
+    localStorage.setItem('solarSystemSamplingQuality', samplingQuality);
+  });
+  
+  // Load settings
+  function loadSettings() {
+    const savedSpeed = localStorage.getItem('solarSystemPlayerSpeed');
+    if (savedSpeed) playerSpeedSelect.value = savedSpeed;
+    
+    const savedOrbits = localStorage.getItem('solarSystemShowOrbits');
+    if (savedOrbits !== null) {
+      showOrbits = savedOrbits === 'true';
+      showOrbitsToggle.checked = showOrbits;
+    }
+    
+    const savedActual = localStorage.getItem('solarSystemShowActual');
+    if (savedActual !== null) {
+      showActual = savedActual === 'true';
+      showActualToggle.checked = showActual;
+    }
+    
+    const savedTrails = localStorage.getItem('solarSystemShowTrails');
+    if (savedTrails !== null) {
+      showTrails = savedTrails === 'true';
+      showTrailsToggle.checked = showTrails;
+    }
+    
+    const savedWaves = localStorage.getItem('solarSystemShowLightWaves');
+    if (savedWaves !== null) {
+      showLightWaves = savedWaves === 'true';
+      showLightWavesToggle.checked = showLightWaves;
+    }
+    
+    const savedGrid = localStorage.getItem('solarSystemShowGrid');
+    if (savedGrid !== null) {
+      showGrid = savedGrid === 'true';
+      showGridToggle.checked = showGrid;
+    }
+    
+    const savedLagTime = localStorage.getItem('solarSystemShowLagTime');
+    if (savedLagTime !== null) {
+      showLagTime = savedLagTime === 'true';
+      showLagToggle.checked = showLagTime;
+    }
+    
+    const savedAISpeed = localStorage.getItem('solarSystemAISpeed');
+    if (savedAISpeed) {
+      aiShip.speed = parseFloat(savedAISpeed);
+      aiSpeedSelect.value = savedAISpeed;
+    }
+    
+    const savedSeparation = localStorage.getItem('solarSystemImageSeparation');
+    if (savedSeparation) {
+      imageSeparation = parseFloat(savedSeparation);
+      separationSelect.value = savedSeparation;
+    }
+    
+    const savedSampling = localStorage.getItem('solarSystemSamplingQuality');
+    if (savedSampling) {
+      samplingQuality = savedSampling;
+      samplingSelect.value = savedSampling;
+    }
+  }
+  
+  // AI Ship decision making
+  function updateAIShip(deltaSeconds) {
+    aiShip.decisionTime -= deltaSeconds;
+    
+    if (aiShip.decisionTime <= 0 || aiShip.pathPoints.length === 0) {
+      // Make a new decision
+      const availablePlanets = planets.filter(p => p !== aiShip.targetPlanet);
+      aiShip.targetPlanet = availablePlanets[Math.floor(Math.random() * availablePlanets.length)];
+      
+      // Calculate target position (where planet will be)
+      const targetX = aiShip.targetPlanet.orbitalRadius * Math.cos(aiShip.targetPlanet.angle);
+      const targetY = aiShip.targetPlanet.orbitalRadius * Math.sin(aiShip.targetPlanet.angle);
+      
+      // Create bezier curve path
+      const dx = targetX - aiShip.x;
+      const dy = targetY - aiShip.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      // Keep user-selected speed (don't override)
+      
+      // Create control points for smooth curve
+      const midX = (aiShip.x + targetX) / 2 + (Math.random() - 0.5) * distance * 0.3;
+      const midY = (aiShip.y + targetY) / 2 + (Math.random() - 0.5) * distance * 0.3;
+      
+      // Generate path points
+      aiShip.pathPoints = [];
+      for (let t = 0; t <= 1; t += 0.02) {
+        const x = (1-t)*(1-t)*aiShip.x + 2*(1-t)*t*midX + t*t*targetX;
+        const y = (1-t)*(1-t)*aiShip.y + 2*(1-t)*t*midY + t*t*targetY;
+        aiShip.pathPoints.push({x, y});
+      }
+      
+      aiShip.pathProgress = 0;
+      aiShip.decisionTime = 30 + Math.random() * 30; // 30-60 seconds
+      aiShip.status = `Flying to ${aiShip.targetPlanet.name} at ${aiShip.speed}c`;
+    }
+    
+    // Move along path
+    if (aiShip.pathPoints.length > 0 && aiShip.pathProgress < aiShip.pathPoints.length - 1) {
+      const speed = aiShip.speed * c_au_per_realsec;
+      const currentPoint = aiShip.pathPoints[Math.floor(aiShip.pathProgress)];
+      const nextPoint = aiShip.pathPoints[Math.min(Math.floor(aiShip.pathProgress) + 1, aiShip.pathPoints.length - 1)];
+      
+      const dx = nextPoint.x - currentPoint.x;
+      const dy = nextPoint.y - currentPoint.y;
+      const segmentLength = Math.sqrt(dx * dx + dy * dy);
+      
+      if (segmentLength > 0) {
+        aiShip.vx = (dx / segmentLength) * speed;
+        aiShip.vy = (dy / segmentLength) * speed;
+        
+        aiShip.x += aiShip.vx * deltaSeconds;
+        aiShip.y += aiShip.vy * deltaSeconds;
+        
+        // Update progress
+        const stepSize = speed * deltaSeconds / segmentLength;
+        aiShip.pathProgress += stepSize;
+      }
+    }
+    
+    aiStatusDisplay.textContent = aiShip.status;
+  }
+  
+  // Animation loop
+  function animate(timestamp) {
+    if (!lastTimestamp) lastTimestamp = timestamp;
+    const deltaSeconds = Math.min((timestamp - lastTimestamp) / 1000, 0.1);
+    if (!paused) simTime += deltaSeconds;
+    lastTimestamp = timestamp;
+    
+    // Update physics
+    if (!paused) {
+      // Update player
+      const anyKeyPressed = Object.values(keysPressed).some(v => v);
+      if (!anyKeyPressed) {
+        player.vx *= playerFriction;
+        player.vy *= playerFriction;
+      }
+      
+      if (keysPressed['ArrowLeft']) player.vx -= playerAccel * deltaSeconds;
+      if (keysPressed['ArrowRight']) player.vx += playerAccel * deltaSeconds;
+      if (keysPressed['ArrowUp']) player.vy -= playerAccel * deltaSeconds;
+      if (keysPressed['ArrowDown']) player.vy += playerAccel * deltaSeconds;
+      
+      // Clamp to max speed
+      const playerMaxSpeed = parseFloat(playerSpeedSelect.value) * c_au_per_realsec;
+      const speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+      if (speed > playerMaxSpeed) {
+        player.vx = (player.vx / speed) * playerMaxSpeed;
+        player.vy = (player.vy / speed) * playerMaxSpeed;
+      }
+      
+      player.x += player.vx * deltaSeconds;
+      player.y += player.vy * deltaSeconds;
+      
+      // Update AI ship
+      updateAIShip(deltaSeconds);
+      
+      // Update planets
+      planets.forEach(planet => {
+        planet.angle += planet.angularVelocity * deltaSeconds;
+      });
+      
+      // Store position histories with sub-sampling for smoother light cone matching
+      const storePosition = (name, x, y, vx = 0, vy = 0) => {
+        const history = positionHistories.get(name);
+        const lastEntry = history[history.length - 1];
+        
+        // If there's a previous entry and significant time has passed, interpolate intermediate positions
+        if (lastEntry && simTime - lastEntry.time > 0.05) { // More than 50ms gap
+          const steps = Math.ceil((simTime - lastEntry.time) / 0.05); // Create samples every 50ms
+          for (let i = 1; i < steps; i++) {
+            const t = i / steps;
+            const interpTime = lastEntry.time + (simTime - lastEntry.time) * t;
+            const interpX = lastEntry.x + (x - lastEntry.x) * t;
+            const interpY = lastEntry.y + (y - lastEntry.y) * t;
+            const interpVx = lastEntry.vx + (vx - lastEntry.vx) * t;
+            const interpVy = lastEntry.vy + (vy - lastEntry.vy) * t;
+            history.push({ x: interpX, y: interpY, vx: interpVx, vy: interpVy, time: interpTime });
+          }
+        }
+        
+        // Store current position
+        history.push({ x, y, vx, vy, time: simTime });
+        
+        // Clean old history
+        while (history.length > 0 && history[0].time < simTime - maxHistoryDuration) {
+          history.shift();
+        }
+      };
+      
+      // Store sun position (stationary)
+      storePosition('sun', sun.x, sun.y);
+      
+      // Store planet positions
+      planets.forEach(planet => {
+        const x = planet.orbitalRadius * Math.cos(planet.angle);
+        const y = planet.orbitalRadius * Math.sin(planet.angle);
+        const tangentialSpeed = planet.orbitalRadius * planet.angularVelocity;
+        const vx = -tangentialSpeed * Math.sin(planet.angle);
+        const vy = tangentialSpeed * Math.cos(planet.angle);
+        storePosition(planet.name, x, y, vx, vy);
+      });
+      
+      // Store moving object positions
+      storePosition('player', player.x, player.y, player.vx, player.vy);
+      storePosition('ai', aiShip.x, aiShip.y, aiShip.vx, aiShip.vy);
+      
+      // Emit light waves
+      if (showLightWaves && simTime - lastWaveTime >= waveInterval) {
+        // Emit from AI ship only
+        lightWaves.push({ x: aiShip.x, y: aiShip.y, time: simTime, source: 'ai' });
+        
+        lastWaveTime = simTime;
+      }
+      
+      // Clean old light waves
+      const maxRadius = Math.sqrt(canvas.width * canvas.width + canvas.height * canvas.height) / zoom + 100;
+      for (let i = lightWaves.length - 1; i >= 0; i--) {
+        const wave = lightWaves[i];
+        const age = simTime - wave.time;
+        const radius = age * c_au_per_sec; // Light waves expand at light speed
+        if (radius > maxRadius) {
+          lightWaves.splice(i, 1);
+        }
+      }
+    }
+    
+    // Update camera
+    if (cameraMode === 'player') {
+      cameraX = player.x;
+      cameraY = player.y;
+    } else if (cameraMode === 'ai') {
+      cameraX = aiShip.x;
+      cameraY = aiShip.y;
+    }
+    
+    // Render
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw grid if enabled
+    if (showGrid) {
+      ctx.strokeStyle = '#222';
+      ctx.lineWidth = 1;
+      const gridSize = Math.pow(10, Math.floor(Math.log10(10 / zoom))); // Adaptive grid size
+      const startX = Math.floor((cameraX - canvas.width / (2 * zoom)) / gridSize) * gridSize;
+      const endX = Math.ceil((cameraX + canvas.width / (2 * zoom)) / gridSize) * gridSize;
+      const startY = Math.floor((cameraY - canvas.height / (2 * zoom)) / gridSize) * gridSize;
+      const endY = Math.ceil((cameraY + canvas.height / (2 * zoom)) / gridSize) * gridSize;
+      
+      for (let x = startX; x <= endX; x += gridSize) {
+        const screen = worldToScreen(x, 0);
+        ctx.beginPath();
+        ctx.moveTo(screen.x, 0);
+        ctx.lineTo(screen.x, canvas.height);
+        ctx.stroke();
+      }
+      
+      for (let y = startY; y <= endY; y += gridSize) {
+        const screen = worldToScreen(0, y);
+        ctx.beginPath();
+        ctx.moveTo(0, screen.y);
+        ctx.lineTo(canvas.width, screen.y);
+        ctx.stroke();
+      }
+      
+      // Draw grid labels
+      ctx.fillStyle = '#444';
+      ctx.font = '10px sans-serif';
+      for (let x = startX; x <= endX; x += gridSize) {
+        const screen = worldToScreen(x, 0);
+        ctx.fillText(x + ' AU', screen.x + 2, canvas.height - 5);
+      }
+    }
+    
+    // Draw orbits if enabled
+    if (showOrbits) {
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 1;
+      planets.forEach(planet => {
+        const center = worldToScreen(0, 0);
+        const radius = planet.orbitalRadius * zoom;
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, radius, 0, 2 * Math.PI);
+        ctx.stroke();
+      });
+    }
+    
+    // Draw light waves if enabled
+    if (showLightWaves) {
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.5;
+      
+      lightWaves.forEach(wave => {
+        const age = simTime - wave.time;
+        const radius = age * c_au_per_sec * zoom; // Light waves expand at light speed
+        const center = worldToScreen(wave.x, wave.y);
+        
+        const fadeAlpha = Math.max(0, 1 - age / 3600) * 0.5; // Fade over 1 hour instead of 20 seconds
+        ctx.globalAlpha = fadeAlpha;
+        
+        // AI ship waves are cyan
+        ctx.strokeStyle = '#0f9';
+        
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, radius, 0, 2 * Math.PI);
+        ctx.stroke();
+      });
+      
+      ctx.globalAlpha = 1.0;
+    }
+    
+    // Find visible positions based on light cones
+    const tolerance = 0.05; // AU tolerance for light cone matching (increased to prevent flickering)
+    const toleranceSq = tolerance * tolerance;
+    let visibleCount = 0;
+    
+    // Helper function to find ALL visible positions (for FTL multiple images)
+    const findAllVisiblePositions = (history, observerX, observerY) => {
+      if (!history || history.length === 0) return [];
+      
+      const visiblePositions = [];
+      
+      for (let i = 0; i < history.length - 1; i++) {
+        const pos1 = history[i];
+        const pos2 = history[i + 1];
+        
+        // Check for light cone intersections
+        const time1 = simTime - pos1.time;
+        const time2 = simTime - pos2.time;
+        
+        if (time1 >= 0 && time2 >= 0) { // Both positions are in the past
+          // First check if light from these positions could have reached observer
+          const maxPossibleDist = Math.max(
+            Math.sqrt(Math.pow(observerX - pos1.x, 2) + Math.pow(observerY - pos1.y, 2)),
+            Math.sqrt(Math.pow(observerX - pos2.x, 2) + Math.pow(observerY - pos2.y, 2))
+          );
+          const minLightTime = Math.min(time1, time2) * c_au_per_sec;
+          
+          // Skip this segment if light hasn't had time to reach us
+          if (minLightTime < maxPossibleDist - tolerance) continue;
+          
+          // For negative time positions (pre-simulation), check if light could have reached us by now
+          if (pos1.time < 0 || pos2.time < 0) {
+            // The position was emitted before simulation started
+            // Light needs to travel from emission point to reach us at current simTime
+            const earliestEmissionTime = Math.min(pos1.time, pos2.time);
+            const totalLightTravelTime = simTime - earliestEmissionTime;
+            const maxLightDistance = totalLightTravelTime * c_au_per_sec;
+            
+            // If the object is too far for its light to have reached us yet, skip
+            if (maxPossibleDist > maxLightDistance + tolerance) continue;
+          }
+          // Sample along the segment to find all intersections
+          const segmentDuration = pos2.time - pos1.time;
+          let numSamples;
+          
+          // Determine sampling based on quality setting
+          switch (samplingQuality) {
+            case 'minimal':
+              numSamples = 5;
+              break;
+            case 'fast':
+              numSamples = Math.min(10, Math.max(5, Math.ceil(segmentDuration * 5)));
+              break;
+            case 'balanced':
+              numSamples = Math.min(20, Math.max(5, Math.ceil(segmentDuration * 10)));
+              break;
+            case 'precise':
+              numSamples = Math.min(40, Math.max(5, Math.ceil(segmentDuration * 20)));
+              break;
+            default:
+              numSamples = Math.min(20, Math.max(5, Math.ceil(segmentDuration * 10)));
+          }
+          
+          for (let i = 0; i <= numSamples; i++) {
+            const t = i / numSamples;
+            const interpTime = pos1.time + t * (pos2.time - pos1.time);
+            const timeSinceEmission = simTime - interpTime;
+            
+            const lightDistance = timeSinceEmission * c_au_per_sec;
+            
+            const interpX = pos1.x + t * (pos2.x - pos1.x);
+            const interpY = pos1.y + t * (pos2.y - pos1.y);
+            const interpVx = pos1.vx + t * (pos2.vx - pos1.vx);
+            const interpVy = pos1.vy + t * (pos2.vy - pos1.vy);
+            
+            const dx = observerX - interpX;
+            const dy = observerY - interpY;
+            const actualDistance = Math.sqrt(dx * dx + dy * dy);
+            
+            const diff = Math.abs(actualDistance - lightDistance);
+            
+            if (diff < tolerance) {
+              // Check if we already have a very similar position
+              const isDuplicate = visiblePositions.some(vp => 
+                Math.abs(vp.timeSinceEmission - timeSinceEmission) < imageSeparation
+              );
+              
+              if (!isDuplicate) {
+                visiblePositions.push({
+                  x: interpX,
+                  y: interpY,
+                  vx: interpVx,
+                  vy: interpVy,
+                  time: interpTime,
+                  timeSinceEmission: timeSinceEmission
+                });
+              }
+            }
+          }
+        }
+      }
+      
+      // Sort by age (newest first) for consistent rendering
+      visiblePositions.sort((a, b) => a.timeSinceEmission - b.timeSinceEmission);
+      
+      // Return all visible positions for FTL effects
+      return visiblePositions;
+    };
+    
+    // Helper function to find single visible position (for objects that don't move FTL)
+    const findVisiblePosition = (history, observerX, observerY) => {
+      const positions = findAllVisiblePositions(history, observerX, observerY);
+      return positions.length > 0 ? positions[0] : null;
+    };
+    
+    // Draw sun
+    const sunPos = findVisiblePosition(positionHistories.get('sun'), player.x, player.y);
+    if (sunPos) {
+      const screen = worldToScreen(sunPos.x, sunPos.y);
+      ctx.fillStyle = sun.color;
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, sun.radius * zoom, 0, 2 * Math.PI);
+      ctx.fill();
+      visibleCount++;
+    }
+    
+    // Draw planets
+    planets.forEach(planet => {
+      const pos = findVisiblePosition(positionHistories.get(planet.name), player.x, player.y);
+      if (pos) {
+        const screen = worldToScreen(pos.x, pos.y);
+        
+        // Calculate Doppler shift
+        const dx = player.x - pos.x;
+        const dy = player.y - pos.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const dirX = dx / dist;
+        const dirY = dy / dist;
+        
+        const planetVelTowardPlayer = (pos.vx || 0) * dirX + (pos.vy || 0) * dirY;
+        const playerVelTowardPlanet = -player.vx * dirX - player.vy * dirY;
+        const relativeVelocity = planetVelTowardPlayer + playerVelTowardPlanet;
+        
+        ctx.fillStyle = getDopplerColor(relativeVelocity);
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y, planet.radius * zoom, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // Draw planet name if zoomed in enough
+        if (zoom > 5) {
+          ctx.save(); // Save context state
+          ctx.fillStyle = '#ccc';
+          ctx.font = '10px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(planet.name, screen.x, screen.y + planet.radius * zoom + 12);
+          ctx.restore(); // Restore context state
+        }
+        
+        visibleCount++;
+      }
+      
+      // Draw actual position if enabled
+      if (showActual) {
+        const actualX = planet.orbitalRadius * Math.cos(planet.angle);
+        const actualY = planet.orbitalRadius * Math.sin(planet.angle);
+        const screen = worldToScreen(actualX, actualY);
+        
+        ctx.strokeStyle = '#444';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y, planet.radius * zoom + 2, 0, 2 * Math.PI);
+        ctx.stroke();
+      }
+    });
+    
+    // Draw trails if enabled
+    if (showTrails) {
+      ctx.globalAlpha = 0.3;
+      
+      // AI trail only
+      const aiHistory = positionHistories.get('ai');
+      if (aiHistory.length > 1) {
+        ctx.strokeStyle = '#00ff99';
+        ctx.beginPath();
+        const start = worldToScreen(aiHistory[0].x, aiHistory[0].y);
+        ctx.moveTo(start.x, start.y);
+        for (let i = 1; i < aiHistory.length; i++) {
+          const point = worldToScreen(aiHistory[i].x, aiHistory[i].y);
+          ctx.lineTo(point.x, point.y);
+        }
+        ctx.stroke();
+      }
+      
+      ctx.globalAlpha = 1.0;
+    }
+    
+    // Draw AI ship - handle multiple images from FTL travel
+    const aiPositions = findAllVisiblePositions(positionHistories.get('ai'), player.x, player.y);
+    aiPositions.forEach((aiPos, index) => {
+      const screen = worldToScreen(aiPos.x, aiPos.y);
+      
+      // Calculate Doppler shift for AI ship
+      const dx = player.x - aiPos.x;
+      const dy = player.y - aiPos.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const dirX = dx / dist;
+      const dirY = dy / dist;
+      
+      const aiVelTowardPlayer = (aiPos.vx || 0) * dirX + (aiPos.vy || 0) * dirY;
+      const playerVelTowardAI = -player.vx * dirX - player.vy * dirY;
+      const relativeVelocity = aiVelTowardPlayer + playerVelTowardAI;
+      
+      // Fade older images
+      const alpha = Math.max(0.3, 1 - index * 0.3);
+      ctx.globalAlpha = alpha;
+      
+      ctx.fillStyle = getDopplerColor(relativeVelocity);
+      ctx.beginPath();
+      ctx.moveTo(screen.x, screen.y - 8);
+      ctx.lineTo(screen.x + 6, screen.y + 5);
+      ctx.lineTo(screen.x - 6, screen.y + 5);
+      ctx.closePath();
+      ctx.fill();
+      
+      // Show time delay if enabled
+      if (showLagTime) {
+        ctx.save(); // Save context state
+        ctx.fillStyle = '#ccc';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        const delayText = aiPos.timeSinceEmission < 1 ? 
+          `-${(aiPos.timeSinceEmission * 1000).toFixed(0)}ms` : 
+          `-${aiPos.timeSinceEmission.toFixed(1)}s`;
+        ctx.fillText(delayText, screen.x, screen.y - 12);
+        ctx.restore(); // Restore context state to prevent fillStyle from affecting other draws
+      }
+      
+      // Debug: Show the light cone radius that matched
+      if (showLightWaves && index === 0) { // Only show for newest image
+        const lightRadius = aiPos.timeSinceEmission * c_au_per_sec * zoom;
+        const emissionScreen = worldToScreen(aiPos.x, aiPos.y);
+        ctx.strokeStyle = '#f0f';
+        ctx.globalAlpha = 0.3;
+        ctx.setLineDash([2, 2]);
+        ctx.beginPath();
+        ctx.arc(emissionScreen.x, emissionScreen.y, lightRadius, 0, 2 * Math.PI);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      
+      ctx.globalAlpha = 1.0;
+      visibleCount++;
+    });
+    
+    // Draw actual AI position if enabled
+    if (showActual) {
+      const actualScreen = worldToScreen(aiShip.x, aiShip.y);
+      
+      // Draw lines from all observed positions to actual position
+      aiPositions.forEach((aiPos, index) => {
+        const observedScreen = worldToScreen(aiPos.x, aiPos.y);
+        ctx.strokeStyle = '#0f9';
+        ctx.globalAlpha = 0.1 + 0.2 * (1 - index / Math.max(1, aiPositions.length - 1));
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(observedScreen.x, observedScreen.y);
+        ctx.lineTo(actualScreen.x, actualScreen.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      });
+      
+      ctx.globalAlpha = 1.0;
+      
+      // Draw actual position outline
+      ctx.strokeStyle = '#0f9';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(actualScreen.x, actualScreen.y - 8);
+      ctx.lineTo(actualScreen.x + 6, actualScreen.y + 5);
+      ctx.lineTo(actualScreen.x - 6, actualScreen.y + 5);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+    
+    // Draw player
+    const playerScreen = worldToScreen(player.x, player.y);
+    ctx.fillStyle = '#ffff00';
+    ctx.beginPath();
+    ctx.moveTo(playerScreen.x, playerScreen.y - 8);
+    ctx.lineTo(playerScreen.x - 6, playerScreen.y + 5);
+    ctx.lineTo(playerScreen.x + 6, playerScreen.y + 5);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Update info display
+    const playerSpeed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+    const playerSpeedInC = playerSpeed / c_au_per_realsec;
+    speedDisplay.textContent = `${playerSpeedInC.toFixed(2)} (${playerSpeed.toFixed(3)} AU/s)`;
+    posDisplay.textContent = `(${player.x.toFixed(2)}, ${player.y.toFixed(2)})`;
+    
+    // Calculate light-lag to Earth
+    const earthData = planets[2]; // Earth is index 2
+    const earthX = earthData.orbitalRadius * Math.cos(earthData.angle);
+    const earthY = earthData.orbitalRadius * Math.sin(earthData.angle);
+    const distToEarth = Math.sqrt(Math.pow(player.x - earthX, 2) + Math.pow(player.y - earthY, 2));
+    const lagMinutes = (distToEarth / c_au_per_sec / 60).toFixed(1);
+    earthLagDisplay.textContent = lagMinutes;
+    
+    // Calculate light-lag to AI ship
+    const distToAI = Math.sqrt(Math.pow(player.x - aiShip.x, 2) + Math.pow(player.y - aiShip.y, 2));
+    const aiLagSeconds = (distToAI / c_au_per_sec).toFixed(0);
+    const aiSpeed = Math.sqrt(aiShip.vx * aiShip.vx + aiShip.vy * aiShip.vy);
+    aiLagDisplay.textContent = `${aiLagSeconds} (AI: ${(aiSpeed / c_au_per_realsec).toFixed(1)}c)`;
+    
+    visibleCountDisplay.textContent = visibleCount;
+    
+    requestAnimationFrame(animate);
+  }
+  
+  // Initialize
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+  initializeHistories();
+  loadSettings();
+  requestAnimationFrame(animate);
+})();
+</script>
+</body>
+</html>
