@@ -65,7 +65,7 @@
   // Constants - Toy Scale for Visual Appeal
   const c_px_per_sec = 200; // pixels per light-second
   const galacticCenter = { x: 0, y: 0 }; // Will be set to canvas center
-  const numStars = 5000;
+  const numStars = 10000; // More stars for denser arms
   const galaxyRadius = 300; // pixels
   const historyDuration = 20; // seconds of position history to keep (balanced for performance)
   
@@ -73,7 +73,7 @@
   const numArms = 4; // Number of spiral arms (Milky Way has 4 major arms)
   const armTightness = 0.3; // How tightly wound the arms are
   const densityWaveSpeed = 0.15; // rad/sec - pattern speed (slower than stars)
-  const densityAmplitude = 0.5; // Strength of density variation (0-1) - reduced to prevent locking
+  const densityAmplitude = 1.0; // Maximum density variation
   
   // Bar parameters (Milky Way's central bar)
   const barLength = 120; // pixels (about 40% of galaxy radius)
@@ -159,18 +159,25 @@
         finalAngle = angle + angleJitter;
       }
       
-      // Determine star type with less dependence on current density
-      // This prevents all stars from starting in arms
-      const isYoungStar = Math.random() < 0.2; // 20% young stars overall
+      // Determine star type - young stars strongly prefer high density regions
+      const creationDensity = getDensityAt(finalRadius, finalAngle);
+      const isYoungStar = Math.random() < (0.05 + creationDensity * 0.8); // 5-85% chance based on density
       const isBarStar = finalRadius < barLength && Math.random() < 0.7; // 70% of bar stars are old
       const isBulgeStar = finalRadius < 80; // Bulge stars
       
-      // Young stars have slight preference for arms but not exclusive
-      if (isYoungStar && Math.random() < 0.5) { // 50% chance to place in arm
-        const creationDensity = getDensityAt(finalRadius, finalAngle);
-        if (creationDensity < 0.7) { // If not in arm, redistribute
-          finalAngle += Math.random() * Math.PI * 2;
+      // Place additional young stars specifically in arms
+      if (isYoungStar && Math.random() < 0.7) { // 70% of young stars forced to arms
+        // Find nearest arm
+        let bestArmAngle = finalAngle;
+        let maxDensity = creationDensity;
+        for (let a = 0; a < Math.PI * 2; a += 0.1) {
+          const testDensity = getDensityAt(finalRadius, a);
+          if (testDensity > maxDensity) {
+            maxDensity = testDensity;
+            bestArmAngle = a;
+          }
         }
+        finalAngle = bestArmAngle + (Math.random() - 0.5) * 0.2; // Small scatter
       }
       
       const star = {
