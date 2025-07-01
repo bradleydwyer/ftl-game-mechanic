@@ -64,7 +64,7 @@
   const timeScale = 1000; // 1 real second = 1000 years
   
   const galacticCenter = { x: 0, y: 0 }; // Will be set to canvas center
-  const numStars = 1000;
+  const numStars = 5000;
   const galaxyRadius = 300; // pixels = 50,000 ly
   const spiralTurns = 3; // number of spiral arms
   const historyDuration = 30; // seconds of position history (increased for better coverage)
@@ -327,7 +327,7 @@
         history.shift();
       }
       
-      if (showLightWaves && simTime - lastWaveTime >= waveInterval && star.id % 50 === 0) {
+      if (showLightWaves && simTime - lastWaveTime >= waveInterval && star.id % 250 === 0) {
         lightWaves.push({
           x: actualX,
           y: actualY,
