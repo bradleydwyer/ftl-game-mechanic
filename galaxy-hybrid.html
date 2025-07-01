@@ -67,7 +67,7 @@
   const numStars = 1000;
   const galaxyRadius = 300; // pixels = 50,000 ly
   const spiralTurns = 3; // number of spiral arms
-  const historyDuration = 20; // seconds of position history
+  const historyDuration = 30; // seconds of position history (increased for better coverage)
   
   // Player
   const player = { x: 0, y: 0, vx: 0, vy: 0 };
@@ -385,42 +385,75 @@
     
     // Find visible star positions based on light cones
     let visibleCount = 0;
-    const tolerance = 10;
+    const tolerance = 3; // Reduced tolerance for more precise light cone matching
     
     stars.forEach(star => {
       const history = starHistories.get(star.id);
-      let rendered = false;
+      if (history.length < 2) return;
       
-      for (const pos of history) {
-        const timeSinceEmission = simTime - pos.time;
-        const lightDistance = timeSinceEmission * c_px_per_sec;
-        const actualDistance = Math.sqrt(
-          Math.pow(player.x - pos.x, 2) + 
-          Math.pow(player.y - pos.y, 2)
-        );
+      let bestMatch = null;
+      let bestDiff = Infinity;
+      
+      // Find the best matching position with interpolation
+      for (let i = 0; i < history.length - 1; i++) {
+        const pos1 = history[i];
+        const pos2 = history[i + 1];
         
-        if (Math.abs(actualDistance - lightDistance) < tolerance) {
-          const dx = player.x - pos.x;
-          const dy = player.y - pos.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          const dirX = dx / dist;
-          const dirY = dy / dist;
+        // Check multiple points between pos1 and pos2
+        for (let t = 0; t <= 1; t += 0.1) {
+          const interpTime = pos1.time + t * (pos2.time - pos1.time);
+          const timeSinceEmission = simTime - interpTime;
+          if (timeSinceEmission < 0) continue;
           
-          const starVelTowardPlayer = (pos.vx || 0) * dirX + (pos.vy || 0) * dirY;
-          const playerVelTowardStar = -player.vx * dirX - player.vy * dirY;
-          const relativeVelocity = starVelTowardPlayer + playerVelTowardStar;
+          const lightDistance = timeSinceEmission * c_px_per_sec;
           
-          const baseColor = getDopplerColor(relativeVelocity);
-          ctx.fillStyle = baseColor;
-          ctx.globalAlpha = star.brightness * Math.max(0.3, 1 - timeSinceEmission / 10);
-          ctx.beginPath();
-          ctx.arc(pos.x, pos.y, star.size, 0, 2 * Math.PI);
-          ctx.fill();
+          // Interpolate position
+          const interpX = pos1.x + t * (pos2.x - pos1.x);
+          const interpY = pos1.y + t * (pos2.y - pos1.y);
+          const interpVx = pos1.vx + t * (pos2.vx - pos1.vx);
+          const interpVy = pos1.vy + t * (pos2.vy - pos1.vy);
           
-          rendered = true;
-          visibleCount++;
-          break;
+          const actualDistance = Math.sqrt(
+            Math.pow(player.x - interpX, 2) + 
+            Math.pow(player.y - interpY, 2)
+          );
+          
+          const diff = Math.abs(actualDistance - lightDistance);
+          
+          if (diff < bestDiff && diff < tolerance) {
+            bestDiff = diff;
+            bestMatch = {
+              x: interpX,
+              y: interpY,
+              vx: interpVx,
+              vy: interpVy,
+              time: interpTime,
+              timeSinceEmission: timeSinceEmission
+            };
+          }
         }
+      }
+      
+      if (bestMatch) {
+        // Calculate relative velocity for Doppler shift
+        const dx = player.x - bestMatch.x;
+        const dy = player.y - bestMatch.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const dirX = dx / dist;
+        const dirY = dy / dist;
+        
+        const starVelTowardPlayer = (bestMatch.vx || 0) * dirX + (bestMatch.vy || 0) * dirY;
+        const playerVelTowardStar = -player.vx * dirX - player.vy * dirY;
+        const relativeVelocity = starVelTowardPlayer + playerVelTowardStar;
+        
+        const baseColor = getDopplerColor(relativeVelocity);
+        ctx.fillStyle = baseColor;
+        ctx.globalAlpha = star.brightness * Math.max(0.3, 1 - bestMatch.timeSinceEmission / 10);
+        ctx.beginPath();
+        ctx.arc(bestMatch.x, bestMatch.y, star.size, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        visibleCount++;
       }
       
       if (showActual && history.length > 0) {
