@@ -37,6 +37,7 @@
   <label><input type="checkbox" id="showDensityToggle"> Show Density Field</label>
   <label><input type="checkbox" id="showStarsToggle" checked> Show Stars</label>
   <label><input type="checkbox" id="showArmsToggle" checked> Enable Density Waves</label>
+  <label><input type="checkbox" id="rotatePatternsToggle"> Rotate Density Patterns</label>
   <label>Bar Strength: <input type="range" id="barStrengthSlider" min="0" max="1" step="0.1" value="0.8"></label>
   <span id="barStrengthLabel">0.8</span>
 </div>
@@ -52,6 +53,7 @@
   const showDensityToggle = document.getElementById('showDensityToggle');
   const showStarsToggle = document.getElementById('showStarsToggle');
   const showArmsToggle = document.getElementById('showArmsToggle');
+  const rotatePatternsToggle = document.getElementById('rotatePatternsToggle');
   const barStrengthSlider = document.getElementById('barStrengthSlider');
   const barStrengthLabel = document.getElementById('barStrengthLabel');
   const speedDisplay = document.getElementById('speedDisplay');
@@ -71,7 +73,7 @@
   const numArms = 4; // Number of spiral arms (Milky Way has 4 major arms)
   const armTightness = 0.3; // How tightly wound the arms are
   const densityWaveSpeed = 0.15; // rad/sec - pattern speed (slower than stars)
-  const densityAmplitude = 0.7; // Strength of density variation (0-1)
+  const densityAmplitude = 0.5; // Strength of density variation (0-1) - reduced to prevent locking
   
   // Bar parameters (Milky Way's central bar)
   const barLength = 120; // pixels (about 40% of galaxy radius)
@@ -106,6 +108,7 @@
   let showTrails = false;
   let showDensity = false;
   let showStars = true;
+  let rotatePatternsEnabled = false;
   
   // Resize canvas
   function resizeCanvas() {
@@ -156,11 +159,19 @@
         finalAngle = angle + angleJitter;
       }
       
-      // Determine if star is in a high-density region at creation
-      const creationDensity = getDensityAt(finalRadius, finalAngle);
-      const isYoungStar = Math.random() < creationDensity * 0.4; // 40% chance in arms
+      // Determine star type with less dependence on current density
+      // This prevents all stars from starting in arms
+      const isYoungStar = Math.random() < 0.2; // 20% young stars overall
       const isBarStar = finalRadius < barLength && Math.random() < 0.7; // 70% of bar stars are old
       const isBulgeStar = finalRadius < 80; // Bulge stars
+      
+      // Young stars have slight preference for arms but not exclusive
+      if (isYoungStar && Math.random() < 0.5) { // 50% chance to place in arm
+        const creationDensity = getDensityAt(finalRadius, finalAngle);
+        if (creationDensity < 0.7) { // If not in arm, redistribute
+          finalAngle += Math.random() * Math.PI * 2;
+        }
+      }
       
       const star = {
         id: i,
@@ -267,12 +278,15 @@
       
       // Bar creates orbital resonances
       const resonanceAngle = Math.atan2(barY, barX);
-      barEffect = 0.2 * Math.cos(2 * resonanceAngle) * Math.exp(-radius / (barLength * 2));
+      barEffect = 0.1 * Math.cos(2 * resonanceAngle) * Math.exp(-radius / (barLength * 2));
     }
     
-    // In high density regions, stars move slower
-    // Bar resonances can speed up or slow down orbits
-    return 2 - density + barEffect; // Returns 0.8 to 1.8
+    // Reduced density effect to prevent spiral locking
+    // Add some randomness to break up coherent structures
+    const randomFactor = 0.95 + Math.random() * 0.1; // 5% random variation
+    const densityEffect = 1 + (density - 0.5) * 0.3; // Max 30% variation instead of 100%
+    
+    return densityEffect * randomFactor + barEffect; // Returns ~0.8 to 1.3
   }
   
   // Calculate Doppler shift color
@@ -362,6 +376,11 @@
     localStorage.setItem('galaxyToy2ShowArms', densityWavesEnabled);
   });
   
+  rotatePatternsToggle.addEventListener('change', () => {
+    rotatePatternsEnabled = rotatePatternsToggle.checked;
+    localStorage.setItem('galaxyToy2RotatePatterns', rotatePatternsEnabled);
+  });
+  
   barStrengthSlider.addEventListener('input', () => {
     barStrength = parseFloat(barStrengthSlider.value);
     barStrengthLabel.textContent = barStrength.toFixed(1);
@@ -415,6 +434,12 @@
       barStrengthSlider.value = barStrength;
       barStrengthLabel.textContent = barStrength.toFixed(1);
     }
+    
+    const savedRotatePatterns = localStorage.getItem('galaxyToy2RotatePatterns');
+    if (savedRotatePatterns) {
+      rotatePatternsEnabled = savedRotatePatterns === 'true';
+      rotatePatternsToggle.checked = rotatePatternsEnabled;
+    }
   }
   
   // Animation loop
@@ -425,7 +450,7 @@
     lastTimestamp = timestamp;
     
     // Update density wave and bar rotation
-    if (densityWavesEnabled) {
+    if (densityWavesEnabled && rotatePatternsEnabled) {
       densityWaveAngle += densityWaveSpeed * deltaSeconds;
       barAngle += barSpeed * deltaSeconds;
     }
@@ -476,6 +501,11 @@
       // Apply density-based velocity modification
       const velocityMod = getVelocityModifier(star.radius, star.angle);
       star.angle += star.angularVelocity * velocityMod * deltaSeconds;
+      
+      // Add small random drift to prevent coherent structures
+      if (Math.random() < 0.1) { // 10% chance per frame
+        star.angle += (Math.random() - 0.5) * 0.001; // Tiny random angle change
+      }
       
       // Age stars over time (affects color)
       if (star.age !== undefined) {
