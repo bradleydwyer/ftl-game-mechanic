@@ -598,8 +598,8 @@
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // Draw density field if enabled
-    if (showDensity && densityWavesEnabled) {
+    // Draw density field if enabled (regardless of whether waves affect motion)
+    if (showDensity) {
       ctx.save();
       ctx.globalAlpha = showStars ? 0.3 : 0.8; // More opaque when stars hidden
       const gridSize = showStars ? 10 : 5; // Finer grid when stars hidden
@@ -628,8 +628,8 @@
       ctx.restore();
     }
     
-    // Draw galactic center and bar structure (only if showing density)
-    if (densityWavesEnabled && showDensity) {
+    // Draw galactic center and bar structure (when showing density)
+    if (showDensity) {
       // Draw the bar
       ctx.save();
       ctx.translate(galacticCenter.x, galacticCenter.y);
@@ -771,7 +771,7 @@
         ctx.fillStyle = baseColor;
         // Enhance brightness in high-density regions to show structure
         const currentDensity = densityWavesEnabled ? getDensityAt(star.radius, star.angle) : 0.5;
-        const brightnessMultiplier = 0.3 + currentDensity * 1.4; // 0.3 to 1.7x brightness
+        const brightnessMultiplier = densityWavesEnabled ? (0.3 + currentDensity * 1.4) : 1.0; // Only enhance if waves enabled
         ctx.globalAlpha = Math.min(1, star.brightness * brightnessMultiplier) * Math.max(0.3, 1 - bestMatch.timeSinceEmission / 10);
         ctx.beginPath();
         ctx.arc(bestMatch.x, bestMatch.y, star.size, 0, 2 * Math.PI);
