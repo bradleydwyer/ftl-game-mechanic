@@ -10,6 +10,8 @@
   canvas { display: block; cursor: crosshair; }
   label { display: block; margin: 5px 0; }
   select { background: #333; color: #eee; border: 1px solid #555; }
+  button { background: #444; color: #eee; border: 1px solid #666; padding: 4px 8px; cursor: pointer; }
+  button:hover { background: #555; }
   .subtitle { font-size: 10px; color: #888; }
   #zoomInfo { position: absolute; bottom: 10px, left: 10px; font-size: 10px; color: #666; }
 </style>
@@ -47,6 +49,7 @@
   <label><input type="checkbox" id="showGridToggle"> Show Grid</label>
   <label><input type="checkbox" id="showLagToggle"> Show Lag Time</label>
   <label><input type="checkbox" id="pauseToggle"> Pause</label>
+  <label><button id="autopilotButton">Autopilot to AI</button></label>
   <label>AI Speed: <select id="aiSpeedSelect">
     <option value="0.25">0.25c</option>
     <option value="0.5">0.5c</option>
@@ -98,6 +101,7 @@
   const aiSpeedSelect = document.getElementById('aiSpeedSelect');
   const separationSelect = document.getElementById('separationSelect');
   const samplingSelect = document.getElementById('samplingSelect');
+  const autopilotButton = document.getElementById('autopilotButton');
   const speedDisplay = document.getElementById('speedDisplay');
   const posDisplay = document.getElementById('posDisplay');
   const earthLagDisplay = document.getElementById('earthLagDisplay');
@@ -180,6 +184,11 @@
   let showLagTime = false; // whether to show lag time labels
   let imageSeparation = 0.5; // seconds between visible instances
   let samplingQuality = 'balanced'; // sampling quality setting
+  
+  // Autopilot state
+  let autopilotActive = false;
+  let autopilotTarget = null;
+  let targetZoom = zoom;
   
   // Initialize histories
   function initializeHistories() {
@@ -310,6 +319,12 @@
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
       e.preventDefault();
       keysPressed[e.key] = true;
+      // Cancel autopilot on manual movement
+      if (autopilotActive) {
+        autopilotActive = false;
+        autopilotButton.textContent = 'Autopilot to AI';
+        autopilotButton.style.backgroundColor = '';
+      }
     } else if (e.key === 'Tab') {
       e.preventDefault();
       // Cycle camera modes
@@ -399,6 +414,21 @@
   samplingSelect.addEventListener('change', () => {
     samplingQuality = samplingSelect.value;
     localStorage.setItem('solarSystemSamplingQuality', samplingQuality);
+  });
+  
+  autopilotButton.addEventListener('click', () => {
+    if (!autopilotActive) {
+      // Activate autopilot - target AI's current actual position
+      autopilotActive = true;
+      autopilotTarget = { x: aiShip.x, y: aiShip.y };
+      autopilotButton.textContent = 'Cancel Autopilot';
+      autopilotButton.style.backgroundColor = '#ff6666';
+    } else {
+      // Cancel autopilot
+      autopilotActive = false;
+      autopilotButton.textContent = 'Autopilot to AI';
+      autopilotButton.style.backgroundColor = '';
+    }
   });
   
   // Load settings
@@ -534,23 +564,44 @@
     // Update physics
     if (!paused) {
       // Update player
-      const anyKeyPressed = Object.values(keysPressed).some(v => v);
-      if (!anyKeyPressed) {
-        player.vx *= playerFriction;
-        player.vy *= playerFriction;
-      }
-      
-      if (keysPressed['ArrowLeft']) player.vx -= playerAccel * deltaSeconds;
-      if (keysPressed['ArrowRight']) player.vx += playerAccel * deltaSeconds;
-      if (keysPressed['ArrowUp']) player.vy -= playerAccel * deltaSeconds;
-      if (keysPressed['ArrowDown']) player.vy += playerAccel * deltaSeconds;
-      
-      // Clamp to max speed
-      const playerMaxSpeed = parseFloat(playerSpeedSelect.value) * c_au_per_realsec;
-      const speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
-      if (speed > playerMaxSpeed) {
-        player.vx = (player.vx / speed) * playerMaxSpeed;
-        player.vy = (player.vy / speed) * playerMaxSpeed;
+      if (autopilotActive && autopilotTarget) {
+        // Autopilot mode
+        const dx = autopilotTarget.x - player.x;
+        const dy = autopilotTarget.y - player.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance < 0.1) { // Arrived at target (within 0.1 AU)
+          autopilotActive = false;
+          autopilotButton.textContent = 'Autopilot to AI';
+          autopilotButton.style.backgroundColor = '';
+          player.vx = 0;
+          player.vy = 0;
+        } else {
+          // Move toward target at max speed
+          const playerMaxSpeed = parseFloat(playerSpeedSelect.value) * c_au_per_realsec;
+          player.vx = (dx / distance) * playerMaxSpeed;
+          player.vy = (dy / distance) * playerMaxSpeed;
+        }
+      } else {
+        // Manual control
+        const anyKeyPressed = Object.values(keysPressed).some(v => v);
+        if (!anyKeyPressed) {
+          player.vx *= playerFriction;
+          player.vy *= playerFriction;
+        }
+        
+        if (keysPressed['ArrowLeft']) player.vx -= playerAccel * deltaSeconds;
+        if (keysPressed['ArrowRight']) player.vx += playerAccel * deltaSeconds;
+        if (keysPressed['ArrowUp']) player.vy -= playerAccel * deltaSeconds;
+        if (keysPressed['ArrowDown']) player.vy += playerAccel * deltaSeconds;
+        
+        // Clamp to max speed
+        const playerMaxSpeed = parseFloat(playerSpeedSelect.value) * c_au_per_realsec;
+        const speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+        if (speed > playerMaxSpeed) {
+          player.vx = (player.vx / speed) * playerMaxSpeed;
+          player.vy = (player.vy / speed) * playerMaxSpeed;
+        }
       }
       
       player.x += player.vx * deltaSeconds;
@@ -636,6 +687,25 @@
     } else if (cameraMode === 'ai') {
       cameraX = aiShip.x;
       cameraY = aiShip.y;
+    }
+    
+    // Adjust zoom when autopilot is active
+    if (autopilotActive) {
+      // Calculate desired zoom to frame both player and AI
+      const dx = Math.abs(aiShip.x - player.x);
+      const dy = Math.abs(aiShip.y - player.y);
+      const maxDist = Math.max(dx, dy);
+      
+      // Target zoom that fits the distance with some padding
+      const minDimension = Math.min(canvas.width, canvas.height);
+      targetZoom = minDimension / (maxDist * 2.5); // 2.5x padding
+      
+      // Clamp target zoom to reasonable bounds
+      targetZoom = Math.max(0.001, Math.min(targetZoom, 10000));
+      
+      // Smoothly adjust zoom
+      const zoomSpeed = 3; // Adjust speed as needed
+      zoom += (targetZoom - zoom) * deltaSeconds * zoomSpeed;
     }
     
     // Render
