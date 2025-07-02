@@ -45,6 +45,20 @@ This project demonstrates light-lag physics and density wave theory through inte
   - Doppler coloring shows stellar velocities
   - Brightness enhancement in arms shows density structure
 
+### solar-system.html
+- **Accurate Sol system simulation with light-lag physics**
+- Key features:
+  - All 8 planets with correct orbital periods and distances
+  - Real-time physics (1 second = 1 second, no time compression)
+  - 10 AI ships with unique symbols (◆ ▲ ● ■ ★ ♦ ▼ ◐ ✦ ◈)
+  - Each AI has unique speed: 16c, 8c, 4c, 2c, 1.5c, 1c, 0.75c, 0.5c, 0.25c, 0.1c
+  - Autopilot system with target selection dropdown
+  - Smooth zoom adjustment during autopilot
+  - Multiple visible images for FTL ships
+  - Adaptive tolerance for preventing flicker
+  - Keyboard shortcuts: +/- for zoom, Tab for camera mode, Space for pause
+  - Light waves show in each AI's color
+
 ## Key Concepts Implemented
 
 ### Light-Lag Physics
@@ -147,21 +161,39 @@ This project demonstrates light-lag physics and density wave theory through inte
 ### Issue: Performance with 5000+ stars
 **Solution**: Optimized to 2000 stars for most sims, 10000 for galaxy-toy2
 
-## Session State (2025-01-01)
+## Session State (2025-01-02)
 
 ### Current Implementation Status
-- All core features working correctly
-- Density wave theory properly implemented
-- No initial spiral structure (correctly emergent)
-- Pattern rotation speed adjustable
-- Performance optimized for 10,000 stars
+- All galaxy simulations working with improved fidelity
+- Solar system simulation (solar-system.html) with accurate physics
+- 10 AI ships with unique symbols and speeds
+- Advanced autopilot system with target selection
+- Light cone physics properly implemented for all objects
 
-### Recent Changes
-- Removed all star types/ages/colors - pure dynamics
-- Fixed density field visibility logic
-- Added pattern speed control (-0.1 to 0.1 rad/s)
-- Bar glow only shows with density field
-- Uniform initial distribution verified
+### Recent Changes (ftl.html & galaxy files)
+- Fixed position jumping with interpolation
+- Increased star count to 5000 then optimized to 2000 for performance
+- Changed from spiral to disc distribution
+- Created galaxy-toy2.html with emergent density wave theory
+
+### Recent Changes (solar-system.html)
+- Created accurate Sol system model with all 8 planets
+- Real-time physics (1 second = 1 second)
+- Implemented multiple AI ships (10 total) with unique symbols
+- Each AI has unique speed: 16c, 8c, 4c, 2c, 1.5c, 1c, 0.75c, 0.5c, 0.25c, 0.1c
+- Fixed light cone tolerance (was 0.05 AU causing 25s early visibility, now 0.001 AU)
+- Added adaptive tolerance for planets vs high-speed objects
+- Removed pre-populated history for moving objects
+- Fixed text color persistence with ctx.save()/restore()
+- Added autopilot with target selection and smooth zoom
+- Removed dashed lines from actual position display
+
+### Key Fixes
+- Light cone physics: Objects only visible when light reaches observer
+- Multiple image rendering for FTL travel works correctly
+- Performance optimized with adaptive sampling
+- Planet flickering fixed with looser tolerance
+- Autopilot cancels on manual movement
 
 ### Configuration
 - Git repository initialized
