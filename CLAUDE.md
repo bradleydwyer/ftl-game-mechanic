@@ -1,4 +1,4 @@
-# FTL Light-Lag Physics Simulation
+# FTL Game Mechanics Simulation
 
 ## Project Overview
 This project demonstrates light-lag physics and density wave theory through interactive visualizations. It started as a simple RTS light-lag demo and evolved into sophisticated galaxy simulations showing how spiral arms form through density waves.
