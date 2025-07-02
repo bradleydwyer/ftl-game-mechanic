@@ -107,4 +107,4 @@ Simply open any HTML file in a modern web browser. No installation required. Eac
 
 ## License
 
-This educational project demonstrates physics concepts through interactive visualization.
+MIT License
